@@ -1,0 +1,13 @@
+node_modules/
+dist/
+coverage/
+
+# env files hold secrets: only the template is committed
+.env
+.env.*
+!.env.example
+
+logs/
+*.log
+*.zip
+.DS_Store

@@ -1,0 +1,79 @@
+# Local development: starts the API, its own MongoDB and Redis together.
+#   Start:  docker compose up --build -d
+#   Logs:   docker compose logs -f api
+#   Stop:   docker compose down        (data is kept; add -v to erase it)
+# Ports are written as "on your PC:inside the container".
+
+name: gian-new
+
+services:
+  api:
+    build:
+      context: .
+      target: deps
+    # npm run dev uses node --watch-path, which is not available on Linux containers
+    command: npx tsx watch src/main.ts
+    init: true
+    env_file: .env
+    # These replace the matching .env values, only inside the container.
+    # Inside Docker, other containers are reached by service name, not "localhost".
+    environment:
+      NODE_ENV: development
+      MONGO_URI: mongodb://mongo:27017/?directConnection=true
+      REDIS_URL: redis://redis:6379
+      # this Mongo starts empty and only you use it, so indexes can be built on startup
+      MONGO_AUTO_INDEX: "true"
+      # Windows file changes do not reach Linux containers as events, so check every second
+      CHOKIDAR_USEPOLLING: "true"
+      CHOKIDAR_INTERVAL: "1000"
+    ports:
+      - "8000:8000"
+    # Your code on the PC appears inside the container, so edits restart the API.
+    volumes:
+      - ./src:/app/src
+      - ./tsconfig.json:/app/tsconfig.json:ro
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8000/health/live"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  # Single-node replica set, because bookings will need transactions.
+  mongo:
+    image: mongo:8
+    command: ["--replSet", "rs0", "--bind_ip_all"]
+    # 27018 on the PC because the MongoDB installed on Windows already uses 27017.
+    # Compass: mongodb://localhost:27018/?directConnection=true
+    # 127.0.0.1 means only this PC can connect (this database has no password).
+    ports:
+      - "127.0.0.1:27018:27017"
+    volumes:
+      - mongo-data:/data/db
+    # Also sets up the replica set the first time it runs.
+    healthcheck:
+      test:
+        - CMD
+        - mongosh
+        - --quiet
+        - --eval
+        - "try { rs.status().ok } catch (e) { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'mongo:27017' }] }).ok }"
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    # BullMQ job queues need noeviction
+    command: ["redis-server", "--maxmemory-policy", "noeviction"]
+    ports:
+      - "127.0.0.1:6379:6379"
+
+# Named storage that survives "docker compose down"
+volumes:
+  mongo-data:

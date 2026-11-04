@@ -1,0 +1,12 @@
+{
+  // npm run build → dist/ (what the Docker runtime image runs). Tests are not shipped.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "rootDir": "src",
+    "outDir": "dist",
+    "sourceMap": true
+  },
+  "include": ["src"],
+  "exclude": ["src/**/__tests__/**"]
+}

@@ -1,0 +1,21 @@
+# Files Prettier never touches (format on save and `npm run format`).
+
+# installed / built / generated
+node_modules/
+dist/
+coverage/
+docs/openapi.json
+package-lock.json
+
+# secrets and local env
+.env
+.env.*
+!.env.example
+
+# hand-written docs: Prettier would re-pad every table and re-wrap prose
+*.md
+
+# logs and archives
+logs/
+*.log
+*.zip

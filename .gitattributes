@@ -1,0 +1,7 @@
+# Store every text file with LF line endings, also when committed from Windows,
+# so Prettier (endOfLine: lf) and git never fight over line endings.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.ico binary
