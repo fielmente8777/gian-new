@@ -45,11 +45,6 @@ export class AuthLegacyMapper {
     return { Status: false, Message: "Invalid Combination" };
   }
 
-  /** /admin/switch-account success: `{ Status, Token }` (the dashboard reads data.Token) */
-  static switched(token: string): LegacyStatusBody {
-    return { Status: true, Token: token };
-  }
-
   /** nexon's catch-all `except: return {"Status": False}` */
   static failure(): LegacyStatusBody {
     return { Status: false };

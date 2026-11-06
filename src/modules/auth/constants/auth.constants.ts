@@ -16,5 +16,9 @@ export const LOGIN_ATTEMPT_WINDOW_MS = 15 * 60_000;
 /** Value of the `typ` claim in access tokens; anything else is rejected. */
 export const ACCESS_TOKEN_TYPE = "access";
 
-/** Password nexon gives every account it creates through Google sign-up (user_usecase.py). */
-export const NEXON_GOOGLE_DEFAULT_PASSWORD = "Eazotel@123";
+/**
+ * The starting password of every account created through Google sign-up, same as nexon
+ * (user_usecase.py). Hotels use it and can change it after logging in. Decided by the owner,
+ * 2026-11-06: keep it. Don't remove it or refuse it at login.
+ */
+export const GOOGLE_SIGNUP_DEFAULT_PASSWORD = "Eazotel@123";

@@ -1,0 +1,57 @@
+/**
+ * Where a lead came from, as gian names it in hotelnotifications.config:
+ * - webform: the hotel's website forms (WordPress, Webflow, Eazotel websites);
+ * - eazbot: the chatbot;
+ * - whatsapp: a guest writing to the hotel on WhatsApp;
+ * - facebook: Meta (Facebook / Instagram) lead ads;
+ * - google: Google Ads lead forms.
+ */
+export const LEAD_SOURCES = ["webform", "eazbot", "whatsapp", "facebook", "google"] as const;
+export type LeadSource = (typeof LEAD_SOURCES)[number];
+
+/** How one property hears about leads from one source. */
+export interface SourceAlerts {
+  /** a "New lead" email to the hotel's email plus `emails` */
+  email: boolean;
+  emails: string[];
+  /** a WhatsApp message to the hotel's phone plus `phones` */
+  whatsapp: boolean;
+  phones: string[];
+}
+
+export type SourceAlertsMap = Record<LeadSource, SourceAlerts>;
+
+/** One property's alert settings (one hotelnotifications document). */
+export interface PropertyAlerts {
+  hid: string;
+  /** false: nothing saved yet, so gian's defaults apply (see DEFAULT_ALERTS) */
+  saved: boolean;
+  sources: SourceAlertsMap;
+}
+
+/**
+ * What gian does for a property that never saved settings: no email (it only emails when
+ * isEmailAllowed is on), and WhatsApp to the hotel's phone (it only skips when isPhoneAllowed
+ * is saved off).
+ */
+export const DEFAULT_ALERTS: Readonly<SourceAlerts> = { email: false, emails: [], whatsapp: true, phones: [] };
+
+/** The hotelnotifications collection, shared with gian and the hotel dashboard. */
+export interface HotelNotificationsPort {
+  /** One entry per hid asked for, in that order; unsaved ones carry the defaults. */
+  list(ndid: string, hids: string[]): Promise<PropertyAlerts[]>;
+  /**
+   * Saves every source of one property, creating its document if needed. Leaves everything
+   * else in the document (callConfig) as it was.
+   */
+  save(ndid: string, hid: string, sources: SourceAlertsMap): Promise<PropertyAlerts>;
+}
+
+export class SourceAlertsDefaults {
+  /** a fresh copy of the defaults for every source */
+  static all(): SourceAlertsMap {
+    return Object.fromEntries(
+      LEAD_SOURCES.map((s) => [s, { ...DEFAULT_ALERTS, emails: [], phones: [] }]),
+    ) as unknown as SourceAlertsMap;
+  }
+}

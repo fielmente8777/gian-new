@@ -36,7 +36,6 @@ export class CredentialService {
       return this.passwords.verify(plain, credential.passwordHash);
     }
 
-    // Accounts nexon made through Google all share the password "Eazotel@123": never accept it.
     if (!LegacyPasswordHash.isUsable(legacyHash) || !LegacyPasswordHash.matches(plain, legacyHash)) {
       await this.passwords.burn(plain);
       return false;

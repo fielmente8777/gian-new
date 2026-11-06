@@ -9,7 +9,27 @@ It replaces both of today's backends, module by module, until neither nexon nor 
 | **gian** (`d:\eazotel-work\gian`) | Node/TS | onboarding, subscription, CRM/leads, WhatsApp, Eazbot, SEO, analytics, **Android app push (FCM)**… | move / rewrite modules into gian-new with the conventions below, then switch it off |
 | **HMSBackend** | Node/JS | GRM (guest requests) | stays its own service for now and uses gian-new for **auth**; becomes `modules/grm` later |
 
-Status (2026-11-03): **skeleton + `auth` built and tested** (`shared/`, `health`, `users` data layer, `auth`: see [src/modules/auth/README.md](src/modules/auth/README.md)). Not deployed. Next: `users` routes and team management, then `properties`, then the booking engine and the website builder.
+### Status (2026-11-06)
+
+Built and tested, **not deployed**. `npm test`: 185 tests, all passing. Only the skeleton and the first `auth` version are committed (`38c15b6`); everything from the admin console on is still uncommitted.
+
+| Module | State | Docs |
+|---|---|---|
+| `shared/`, `health`, Docker, OpenAPI docs at `/docs`, pino logs | built | §3, §6 |
+| `auth` (hotel login: password, Google, legacy nexon tokens, mobile refresh tokens, JWKS, client-account tokens for staff) | built | [auth README](src/modules/auth/README.md) |
+| `users` (data layer over `Zucks_users`) | built, no routes yet | |
+| `admin` (staff console API: Google + emailed code login, team, roles and permissions, audit log, clients, open account, service switches, lead alerts, subscriptions, apps, delete client) | built | [admin README](src/modules/admin/README.md) |
+| `profiles` (data layer over `Zucks_profile`) | built, used by `admin` | |
+| `subscriptions` (data layer over gian's `subscriptions`, `plans`, `apps`) | built, used by `admin` | |
+| `client-services` (chatbot / leads switches, held leads, catch-up email, one-minute sweep) | built | [client-services README](src/modules/client-services/README.md) |
+| `hotel-notifications` (per-property lead alert settings, shared with gian) | built | [hotel-notifications README](src/modules/hotel-notifications/README.md) |
+| `client-archive` (copies a client's records to `deleted_client_records` before deleting them) | built, used by `admin` | admin README, "Deleting a client" |
+| `billing` (plan catalogue, server-side pricing with cycle discounts, offers and upgrade credit, Razorpay checkout, webhook, auto-renew; rebuilds `appAccess` after each payment) | built | [billing README](src/modules/billing/README.md), testing: [docs/BILLING-TESTING.md](docs/BILLING-TESTING.md) |
+| `integrations/google` (ID token verifier), `integrations/mail` (SMTP via nodemailer; prints to the log in development), `integrations/razorpay` (REST over fetch, signature checks) | built | |
+
+The staff console frontend is `d:\eazotel-work\admindashboard` (Next.js), see its README.
+
+Next: commit and deploy gian-new with the admin console, then the `crm` module (nexon's website-lead and chatbot paths, obeying the client-services switches), then `users` routes and team management, `properties`, the booking engine and the website builder.
 
 ## 0. What we are building
 
@@ -110,7 +130,8 @@ gian-new/
       razorpay/  whatsapp/  google/  aws-s3/  serpapi/
 
     modules/                one folder per feature (§3.2)
-      auth/  users/  properties/  booking-engine/  website-builder/  health/ …
+      built:   health/  auth/  users/  admin/  profiles/  subscriptions/  billing/  client-services/  hotel-notifications/  client-archive/
+      planned: crm/  properties/  booking-engine/  website-builder/ …
 
   docs/                     PLATFORM-FLOW.md (onboarding → AI site → CMS → leads), BOOKING-ENGINE.md (pricing calendar + maths),
                             ANALYTICS-SEO.md (Google data, website + local SEO)
@@ -454,7 +475,7 @@ The dashboard feels slow when an endpoint does more work than its answer needs. 
 **Implemented (2026-11-03)**: endpoints, token formats, the password rules during the migration and every class are in [src/modules/auth/README.md](src/modules/auth/README.md). Reasoning: `HMSBackend/docs/LOGIN-DESIGN.md`. Summary:
 
 - `modules/auth` issues **RS256** access tokens (15 min) plus rotating refresh tokens (httpOnly cookie for browsers, JSON body for the Android/iOS app via `X-Client-Platform`), and publishes its keys at `/.well-known/jwks.json`.
-- **Staff** = Eazotel and Fielmente team (`AUTH_STAFF_EMAIL_DOMAINS=eazotel.com,fielmente.com`), proven by a verified Google sign-in. Staff can switch into a client account with a 1-hour token that names them (`act` claim). This replaces nexon's `/admin/switch-account` and `role: "owner"`, both of which anyone could abuse. HMS and the booking-engine widgets verify tokens with the public key.
+- **Staff** are not hotel users. They live in `admin_users` and sign in to the admin console through `modules/admin` (Google + an emailed 6-digit code, token audience `eazotel-admin`, cookie `ez_admin_rt`, invite only). A staff member opens a client's dashboard with `POST /api/v1/admin/clients/:ndid/open-account`, which checks their permission and assigned properties, logs it, and returns a 1-hour hotel token. This replaced the earlier email-domain staff rule and `/api/v1/auth/switch-account` (2026-11-05); gian-new's copy of nexon's `/admin/switch-account` always answers 403. See [src/modules/admin/README.md](src/modules/admin/README.md). HMS and the booking-engine widgets verify tokens with the public key.
 - Login methods are strategies: email + password, Google, phone OTP (WhatsApp/SMS), and **legacy token**. nexon signs its logins with an HS256 secret (gian's `JWT_SECRET`). The legacy strategy verifies those tokens locally with `AUTH_LEGACY_JWT_SECRET`, so a user already logged in through nexon is accepted and old sessions don't break, without any call to nexon. It is removed once every client uses the new login.
 - Token claims: `sub`, `sid` (session), `ndid`, `email`, `role`, `admin`, `perms[]` (account `accessScope` flags), `props: [{ hid, perms[] }]` (`assigned_location`), `iss`, `aud`, `exp`. Permission names are today's `accessScope` keys (`cms`, `bookingEngine`…), so no data migration is needed.
 - The legacy secret is also used to **sign** nexon-style tokens on the old login paths gian-new serves, so a login answered by gian-new still works against nexon and gian.
@@ -469,7 +490,8 @@ The dashboard feels slow when an endpoint does more work than its answer needs. 
 | Order | Module | Replaces | Notes |
 |---|---|---|---|
 | 0 | `shared`, `health`, Docker, CI | — | skeleton that runs in compose with `/health/ready` green |
-| 1 | `auth` + `users` | nexon login (`/feature1/*`, `/user/*`), gian `authMiddleware` | foundation for everything else |
+| 1 | `auth` + `users` | nexon login (`/feature1/*`, `/user/*`), gian `authMiddleware` | foundation for everything else. **auth built**, users routes still to do |
+| 1b | `admin` + `profiles`, `subscriptions`, `client-services`, `hotel-notifications`, `client-archive` | nexon `/admin/*`, manual DB edits by the team | **built 2026-11-04 → 06** (staff console, see the admin README) |
 | 2 | `properties` (owner profile, locations/hotels, settings), `media` (S3 + CloudFront) | nexon profile / `BookingEngineData` / `/multilocation/*`, `/upload/file/image`, gian property/location | tenant model: `ndid` → `hid[]` |
 | 3 | `booking-engine` (room types, rate plans, ARI calendar, pricing engine, promotions, taxes, bookings) + `payments` | nexon `/booking/*`, `/room/*`, `/inventory/*`, `/price/*`, `/payment/*`, `/razorpay/*`, `/mpackage/*` | priority: [docs/BOOKING-ENGINE.md](docs/BOOKING-ENGINE.md) |
 | 4 | `website-builder` (sites, content versions, publish to GitHub/Vercel, SEO, domains), `ai` (generation + prompt edits), site template repo | nexon `/cms/*`, `/eazotel/createwebsite` | priority: [docs/PLATFORM-FLOW.md](docs/PLATFORM-FLOW.md) |
@@ -534,7 +556,7 @@ This list comes from a static scan of `dashboard-new`, `BookingEngineReact`, `ch
 
 | Module | nexon paths (as called, typos included) |
 |---|---|
-| auth / users | **native in gian-new (2026-11-03):** `/eazotel/ceateuser` (cut over only after the `user.registered` → subscription listener exists), `/user/googleauth`, `/eazotel/edit/password`, `/admin/switch-account` (**switch this one first**: it closes hole 1 of §9.6). **Still nexon:** `/feature1/signup`, `/feature1/otp-verify`, `/feature1/getuser` (guest OTP), `/user/user-details`, `/eazotel/getuser/<token>`, `/user/create/`, `/user/edit/`, `/user/delete/`, `/eazotel/forgot/password`, `/admin/login`, `/admin/switch-account`, `/admin/get-all-clients` |
+| auth / users | **native in gian-new (2026-11-03):** `/eazotel/ceateuser` (cut over only after the `user.registered` → subscription listener exists), `/user/googleauth`, `/eazotel/edit/password`, `/admin/switch-account` (retired: always 403; **switch this one first**, it closes hole 1 of §9.6. dashboard-new's owner client switcher still calls it and stops working at that point). **Still nexon:** `/feature1/signup`, `/feature1/otp-verify`, `/feature1/getuser` (guest OTP), `/user/user-details`, `/eazotel/getuser/<token>`, `/user/create/`, `/user/edit/`, `/user/delete/`, `/eazotel/forgot/password`, `/admin/login`, `/admin/switch-account`, `/admin/get-all-clients` |
 | properties | `/multilocation/addlocations/dashboard`, `/multilocation/findlocations` |
 | booking-engine | `/booking/getenginedetails/:ndid/:hid`, `/booking/availablity`, `/booking/engine`, `/booking/update`, `/booking/filter/bookingid`, `/booking/filter/dates`, `/booking/filter/payment/`, `/booking/generateotp`, `/booking/cancelwithoutOtp`, `/room/engine/:id`, `/room/create/`, `/room/delete/`, `/inventory/getinventory/all/nextprev/`, `/price/getprice/all/nextprev/`, `/mpackage/packages`, `/rpackage/ad` |
 | payments | `/payment/create_order`, `/payment/getBookingDetailsforcancellation`, `/razorpay/edit/gateway`, `/razorpay/v1/payments`, `/razorpay/v1/filtered/orders`, `/razorpay/v1/filtered/payments` |
@@ -549,14 +571,14 @@ These are live in production now. gian-new does not have them, but they stay ope
 
 | # | Where | Problem | Impact | Quick fix in nexon |
 |---|---|---|---|---|
-| 1 | `POST /admin/switch-account` | signs **any JSON body** as a token, with no auth check (`utils.create(data)`) | anyone can get a valid token for **any hotel account** (`{"Email": "<owner>"}`) | **gian-new serves a safe version**: add the nginx `location` for this path. Or block it in nginx |
+| 1 | `POST /admin/switch-account` | signs **any JSON body** as a token, with no auth check (`utils.create(data)`) | anyone can get a valid token for **any hotel account** (`{"Email": "<owner>"}`) | **gian-new answers it with 403** (staff use the admin console's Open account instead): add the nginx `location` for this path. Or block it in nginx |
 | 2 | `POST /admin/login` | issues a token even when the password is wrong (the `find_one` result is never checked) | anyone gets an admin token for any admin email | `if admin is None: return False` |
 | 3 | `POST /feature1/otp-verify` | the OTP check result is ignored; a token is issued for any OTP | anyone can read and cancel any guest's bookings by phone number | return False when `verifyOtpToNumber` fails |
 | 4 | `POST /user/delete/<email>` | no authentication at all | anyone can delete any dashboard user | require the owner's token, same ndid |
 | 5 | `POST /eazotel/forgot/password` | replaces the password immediately and emails a new one | anyone can lock any user out (the password changes on every call) | send a reset link with a one-time token instead |
 | 6 | `settings.py`, `local.py`, `.env`, `nexon.py` | JWT secret, Mongo URL, Razorpay secret, OpenAI key and Google client secret are **committed to git** | anyone with repo access can mint tokens and read the database | rotate every secret, move them to env/SSM, remove them from git |
 | 7 | `/user/edit/<token>` | edits whichever email is in the body, without checking it belongs to the token's ndid | a user of one hotel can edit users of another | check `ndid` |
-| 8 | Google sign-up | every account created with Google gets the password `Eazotel@123` | password login into any Google-created account | set an unusable `accesskey` |
+| 8 | Google sign-up | every account created with Google starts with the password `Eazotel@123` | password login into a Google-created account that hasn't changed it | **Kept on purpose** (owner's decision, 2026-11-06): hotels use it and can change it after logging in. gian-new does the same. Don't remove it |
 
 Rotating the JWT secret (6) logs everyone out of nexon and gian, and gian-new's `AUTH_LEGACY_JWT_SECRET` must change at the same moment.
 

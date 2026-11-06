@@ -69,13 +69,6 @@ export class PermissionDeniedError extends ForbiddenError {
   }
 }
 
-/** Only an Eazotel / Fielmente staff session (Google login on a staff domain) may do this. */
-export class StaffOnlyError extends ForbiddenError {
-  constructor() {
-    super("Only Eazotel staff signed in with Google can do this", { code: "STAFF_ONLY" });
-  }
-}
-
 export class EmailTakenError extends ConflictError {
   constructor() {
     super("An account with this email already exists", { code: "EMAIL_TAKEN" });

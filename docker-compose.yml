@@ -31,6 +31,7 @@ services:
     # Your code on the PC appears inside the container, so edits restart the API.
     volumes:
       - ./src:/app/src
+      - ./scripts:/app/scripts
       - ./tsconfig.json:/app/tsconfig.json:ro
     depends_on:
       mongo:

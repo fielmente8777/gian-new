@@ -8,8 +8,6 @@ declare module "../../../shared/events/event-bus.js" {
     "user.registered": { userId: string; ndid: string; email: string; method: LoginMethod };
     "user.logged_in": { userId: string; ndid: string; method: LoginMethod; ip?: string; platform?: ClientPlatform };
     "user.password_changed": { userId: string };
-    /** a staff member opened a client account (audit) */
-    "user.account_switched": { actorId: string; actorEmail: string; userId: string; ndid: string };
   }
 }
 

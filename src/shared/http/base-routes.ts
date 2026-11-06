@@ -49,6 +49,14 @@ export abstract class BaseRoutes {
     this.add("delete", path, spec, handlers);
   }
 
+  /** Serves another routes class from this one, docs included, for a module with several route groups. */
+  protected include(group: BaseRoutes): void {
+    this.routes.use(group.router);
+    for (const operation of group.operations) {
+      this.operations.push({ ...operation, path: BaseRoutes.join(this.prefix, operation.path) });
+    }
+  }
+
   private add(method: HttpMethod, path: string, spec: RouteSpec, handlers: RequestHandler[]): void {
     const controller = handlers.at(-1);
     if (!controller) throw new Error(`${method.toUpperCase()} ${path}: a route needs a controller method`);

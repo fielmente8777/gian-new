@@ -1,6 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
-import { NEXON_GOOGLE_DEFAULT_PASSWORD } from "../constants/auth.constants.js";
+import { GOOGLE_SIGNUP_DEFAULT_PASSWORD } from "../constants/auth.constants.js";
 
 const SHA256_HEX = /^[a-f0-9]{64}$/;
 
@@ -10,8 +10,8 @@ const SHA256_HEX = /^[a-f0-9]{64}$/;
  * AUTH_LEGACY_PASSWORD_SYNC is on. Delete with nexon.
  */
 export class LegacyPasswordHash {
-  /** Hash every account nexon created through Google sign-up shares (password "Eazotel@123"). */
-  static readonly googleDefault = LegacyPasswordHash.of(NEXON_GOOGLE_DEFAULT_PASSWORD);
+  /** What an account created through Google sign-up starts with (password "Eazotel@123"). */
+  static readonly googleDefault = LegacyPasswordHash.of(GOOGLE_SIGNUP_DEFAULT_PASSWORD);
 
   static of(plain: string): string {
     return createHash("sha256").update(plain, "utf8").digest("hex");
@@ -23,14 +23,14 @@ export class LegacyPasswordHash {
     return timingSafeEqual(Buffer.from(LegacyPasswordHash.of(plain), "hex"), Buffer.from(stored, "hex"));
   }
 
-  /** Can a password log in with this stored value? False for unusable markers and the Google default. */
+  /** Can a password log in with this stored value? False for unusable markers. */
   static isUsable(stored: string | null): stored is string {
-    return stored !== null && SHA256_HEX.test(stored) && stored !== LegacyPasswordHash.googleDefault;
+    return stored !== null && SHA256_HEX.test(stored);
   }
 
   /**
    * A value for `accesskey` that no password matches ("!" is never part of a SHA-256 hex).
-   * Used for Google-only accounts and once nexon password sync is off.
+   * Used once nexon password sync is off.
    */
   static unusable(): string {
     return `!disabled:${randomBytes(16).toString("hex")}`;

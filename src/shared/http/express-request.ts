@@ -9,6 +9,8 @@ declare global {
       requestId: string;
       /** Parsed query / params from Validate.query / Validate.params (req.query is read-only in Express 5). */
       validated?: { query?: unknown; params?: unknown };
+      /** The body exactly as received, for webhook signatures (set by the JSON parser in App). */
+      rawBody?: Buffer;
     }
   }
 }

@@ -1,3 +1,7 @@
+import { mailConfig } from "../integrations/mail/mail.config.js";
+import { razorpayConfig } from "../integrations/razorpay/razorpay.config.js";
+import { adminConfig } from "../modules/admin/config/admin.config.js";
+import { clientServicesConfig } from "../modules/client-services/config/client-services.config.js";
 import { authConfig } from "../modules/auth/config/auth.config.js";
 import { appConfig } from "./app.config.js";
 import type { ConfigOf, EnvSource } from "./config-section.js";
@@ -13,7 +17,11 @@ export const configSections = {
   app: appConfig,
   database: databaseConfig,
   redis: redisConfig,
+  mail: mailConfig,
+  razorpay: razorpayConfig,
   auth: authConfig,
+  admin: adminConfig,
+  clientServices: clientServicesConfig,
 } as const;
 
 export type Config = ConfigOf<typeof configSections>;

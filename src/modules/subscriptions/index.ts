@@ -1,0 +1,27 @@
+// Public API of the subscriptions module. Other modules import from here only.
+export { SubscriptionsModule } from "./subscriptions.module.js";
+export {
+  ENDING_SOON_DAYS,
+  type ActivatePeriod,
+  type AppAssignment,
+  type AutoRenewal,
+  type AutoRenewalStatus,
+  type BillingPeriod,
+  type PurchaseTerms,
+  type SubscriptionBillingPort,
+  type SubscriptionBillingSnapshot,
+  type SubscriptionBillingStats,
+  type AppRecord,
+  type SubscriptionApp,
+  SubscriptionRule,
+  type PlanRecord,
+  type StaffStop,
+  type SubscriptionCounts,
+  type SubscriptionPage,
+  type SubscriptionSort,
+  type SubscriptionRecord,
+  type SubscriptionSearch,
+  type SubscriptionState,
+  type SubscriptionStatus,
+  type SubscriptionsPort,
+} from "./types/subscriptions.types.js";

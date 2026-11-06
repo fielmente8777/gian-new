@@ -20,7 +20,6 @@ Status (2026-11-03): **built and tested** (52 tests, plus a run against a real M
 | `GET /api/v1/auth/me` | access or nexon token | – | 200 user |
 | `POST /api/v1/auth/password` | access or nexon token | `{ currentPassword, newPassword }` | 204; other devices logged out |
 | `POST /api/v1/auth/legacy/exchange` | **nexon token** | – | 200 session (moves a nexon login to the new tokens) |
-| `POST /api/v1/auth/switch-account` | **staff** | `{ email }` or `{ ndid }` | 200 1-hour access token for the client account (no refresh token) |
 | `GET /.well-known/jwks.json` | public | – | public keys (other services verify our tokens with them) |
 
 A session response is `{ success: true, data: { accessToken, tokenType: "Bearer", expiresAt, isStaff, user } }`.
@@ -44,7 +43,7 @@ The platform and device are stored with the session, so a "log out this device" 
 | `POST /eazotel/ceateuser` | `controller/eazotel.py createUser` | login, or sign-up when `register === "true"`. Returns a nexon-style token |
 | `POST /user/googleauth` | `controller/users.py google_login_and_signup` | `Authorization: Bearer <Google ID token>` |
 | `POST /eazotel/edit/password` | `controller/eazotel.py editUser_password` | `{ token, oldAccessId, newAccessId }` |
-| `POST /admin/switch-account` | `controller/admin.py switchAccount` | `{ Email }` → `{ Status, Token }`. **Fixed**: nexon signs any body for anyone; here the caller must be staff, the client must exist, the token lasts 1 hour, and every switch is logged |
+| `POST /admin/switch-account` | `controller/admin.py switchAccount` | **Retired**: always `403 { Status: false, Message }`. nexon signs a token for anyone who asks. Staff open client accounts from the admin console instead |
 
 They only receive traffic after nginx sends the path to gian-new (README §9.2). They are mounted only when `AUTH_LEGACY_JWT_SECRET` is set.
 
@@ -61,8 +60,8 @@ They only receive traffic after nginx sends the path to gian-new (README §9.2).
 - `perms` = the `accessScope` flags that are `true` (`cms`, `bookingEngine`, …). `props` = `assigned_location`.
 - **Permission rule** (`AuthContext.can`): on a property the user is assigned to, that property's flags decide. On any other property, only an owner (`isAdmin`) has access, with the account flags. Checking that the `hid` belongs to the owner's `ndid` is the properties module's job.
 - The middleware chooses how to verify a token by its `alg` header: RS256 → `AccessTokenStrategy` (no DB call), HS256 → `LegacyTokenStrategy` (looks up the email, like gian's `authMiddleware`).
-- **Staff** (`staff: true`): this login was **Google with a verified email on `AUTH_STAFF_EMAIL_DOMAINS`** (eazotel.com, fielmente.com). A typed email proves nothing (anyone can register `x@eazotel.com` with a password, and nexon lets a hotel give its users role `owner`), so password logins are never staff. The refresh token remembers the flag; removing a domain from the env ends staff rights at the next refresh. With an **old nexon token** the login method is unknown, so staff = a staff-domain email whose account has been linked to Google (only a Google sign-in links it).
-- **Switch account**: the staff member gets an access token for the client account with `act: { sub, email }` (RFC 8693 actor claim), `staff: false` (no switching on from there), 1-hour lifetime (`AUTH_IMPERSONATION_TTL`) and no refresh token. `/me` shows `switchedBy`, so the dashboard can show a "viewing as … / exit" banner. Every switch emits `user.account_switched` (logged as an audit line).
+- **Staff** (`staff: true`) grants nothing today; it is kept so the hotel dashboard can tell staff apart later. This login was **Google with a verified email on `AUTH_STAFF_EMAIL_DOMAINS`** (eazotel.com, fielmente.com). A typed email proves nothing (anyone can register `x@eazotel.com` with a password, and nexon lets a hotel give its users role `owner`), so password logins are never staff. The refresh token remembers the flag; removing a domain from the env ends staff rights at the next refresh. With an **old nexon token** the login method is unknown, so staff = a staff-domain email whose account has been linked to Google (only a Google sign-in links it).
+- **Opening a client account** is the admin module's job (`POST /api/v1/admin/clients/:ndid/open-account`): it checks `admin_users`, the `clients.open_account` permission and the person's assigned properties, writes the audit log, then asks this module's `ClientAccountTokens` for a nexon-style token for the account holder (`AUTH_IMPERSONATION_TTL`, 1 hour, no refresh). It is nexon-style because the hotel dashboard still calls nexon and gian. Once it runs on our tokens, issue an access token with `act: { sub, email }` instead (`AuthContext` and `/me` `switchedBy` already handle that claim).
 - Refresh rotation with reuse detection: a token that has already been replaced and is used again (after a 10 s grace period for two tabs refreshing at once) revokes the whole session family.
 
 ## 3. Passwords during the migration
@@ -79,7 +78,7 @@ set password:  bcrypt → auth_credentials, and accesskey = sha256(new) while AU
 ```
 
 - There is no migration script. Every user is upgraded on their first login through gian-new.
-- The shared Google sign-up password nexon uses (`Eazotel@123`) is never accepted.
+- Accounts created through Google sign-up start with the default password `Eazotel@123`, as in nexon, and hotels can change it after logging in. This is the owner's decision (2026-11-06), so keep it.
 - Unknown emails take the same time as wrong passwords, so attackers can't tell which emails have accounts.
 - When nexon is retired, set `AUTH_LEGACY_PASSWORD_SYNC=false` and `accesskey` stops being written.
 
@@ -128,7 +127,7 @@ const { ndid } = AuthContext.of(req);   // tenant from the token, never from the
 |---|---|
 | sign-up checks email **and** password, so the same email with another password creates a second account | checks the email only (any letter case) → `EMAIL_TAKEN` |
 | password login ignores `isActive` | inactive accounts are refused everywhere |
-| Google login accepts unverified emails; new accounts get the password `Eazotel@123` | verified emails only; new Google accounts have no password |
+| Google login accepts unverified emails | verified emails only. New accounts get the default password `Eazotel@123`, same as nexon |
 | token `Email` = the email as the user typed it (so gian's exact `emailId` lookup can miss) | the stored email |
 | no rate limit | 10 failed logins per IP + email per 15 min |
 | unsalted SHA-256 | bcrypt (12 rounds), SHA-256 written only for nexon while sync is on |

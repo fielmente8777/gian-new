@@ -73,7 +73,7 @@ const schema = z.object({
   AUTH_STAFF_EMAIL_DOMAINS: csv
     .pipe(z.array(z.string().regex(/^[a-z0-9.-]+\.[a-z]{2,}$/, "a domain like eazotel.com")))
     .default(["eazotel.com", "fielmente.com"]),
-  // lifetime of the access token a staff member gets when switching into a client account
+  // lifetime of the token a staff member gets when opening a client account from the admin console
   AUTH_IMPERSONATION_TTL: duration.default("1h"),
 });
 

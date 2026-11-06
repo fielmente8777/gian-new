@@ -14,7 +14,6 @@ import {
   InvalidCredentialsError,
   InvalidGoogleTokenError,
   InvalidTokenError,
-  StaffOnlyError,
   TokenExpiredError,
 } from "../errors/auth.errors.js";
 import { AuthLegacyMapper } from "../mappers/auth.legacy.mapper.js";
@@ -22,7 +21,7 @@ import type { AuthService } from "../services/auth.service.js";
 import type { LegacyTokenService } from "../services/legacy-token.service.js";
 import { AuthContext } from "../types/auth-context.js";
 
-const switchBody = z.object({ Email: z.string().trim().min(3).max(254) });
+const SWITCH_RETIRED = "Open client accounts from the Eazotel admin console";
 
 /**
  * Old nexon paths, answered by gian-new in nexon's exact shapes (README §9), so the current
@@ -36,7 +35,6 @@ export class AuthLegacyController extends BaseController {
     private readonly legacyTokens: LegacyTokenService,
     private readonly users: Pick<UsersPort, "findByEmail">,
     private readonly logger: Logger,
-    private readonly switchTtlSeconds: number,
   ) {
     super();
   }
@@ -112,26 +110,13 @@ export class AuthLegacyController extends BaseController {
   }
 
   /**
-   * POST /admin/switch-account  { Email }  (route requires a signed-in user)
-   * nexon signs any body for anyone. Here only staff may switch, the target must exist,
-   * the token lasts AUTH_IMPERSONATION_TTL instead of 15 days, and every switch is audited.
+   * POST /admin/switch-account: retired. nexon signed a token for anyone who asked, and an
+   * email domain proves nothing about who is staff. Staff open client accounts from the admin
+   * console (POST /api/v1/admin/clients/:ndid/open-account), which checks admin_users, the
+   * clients.open_account permission and the person's assigned properties.
    */
-  async switchAccount(req: Request, res: Response): Promise<void> {
-    const parsed = switchBody.safeParse(req.body);
-    if (!parsed.success) {
-      res.json(AuthLegacyMapper.failure());
-      return;
-    }
-    try {
-      const target = await this.auth.switchAccount(AuthContext.of(req), { email: parsed.data.Email });
-      res.json(AuthLegacyMapper.switched(await this.legacyTokens.sign(target.email, this.switchTtlSeconds)));
-    } catch (error) {
-      if (error instanceof StaffOnlyError)
-        res.status(403).json({ ...AuthLegacyMapper.failure(), Message: error.message });
-      else if (error instanceof NotFoundError || error instanceof AccountInactiveError)
-        res.json(AuthLegacyMapper.failure());
-      else res.json(this.unexpected(error, req));
-    }
+  async switchAccount(_req: Request, res: Response): Promise<void> {
+    res.status(403).json({ ...AuthLegacyMapper.failure(), Message: SWITCH_RETIRED });
   }
 
   private async register(body: LegacyCreateUserBody, res: Response): Promise<void> {

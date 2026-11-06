@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { UserRecord, UsersPort } from "../../users/index.js";
 import { AccountInactiveError, InvalidRefreshTokenError } from "../errors/auth.errors.js";
 import { AuthContext } from "../types/auth-context.js";
-import type { Actor, ClientInfo, IssuedToken, Session } from "../types/auth.types.js";
+import type { ClientInfo, Session } from "../types/auth.types.js";
 import type { RefreshTokenService } from "./refresh-token.service.js";
 import type { StaffPolicy } from "./staff.policy.js";
 import type { TokenService } from "./token.service.js";
@@ -19,7 +19,6 @@ export class SessionService {
     private readonly refreshTokens: RefreshTokenService,
     private readonly users: Pick<UsersPort, "findById">,
     private readonly staffPolicy: StaffPolicy,
-    private readonly switchTtl: string,
   ) {}
 
   async start(user: UserRecord, client: ClientInfo, { staff = false } = {}): Promise<Session> {
@@ -46,17 +45,6 @@ export class SessionService {
       user,
       staff: context.isStaff,
     };
-  }
-
-  /**
-   * Access token for a staff member working inside a client account. It names the staff
-   * member (`act`), expires after AUTH_IMPERSONATION_TTL, has no refresh token and cannot
-   * switch again. The staff member's own session is untouched.
-   */
-  async switchInto(target: UserRecord, actor: Actor): Promise<IssuedToken> {
-    const sessionId = `switch:${randomUUID()}`;
-    const context = AuthContext.fromUser(target, "access", null, { actor });
-    return this.tokens.signAccessToken(context.toClaims(sessionId), { ttl: this.switchTtl });
   }
 
   async end(token: string): Promise<void> {

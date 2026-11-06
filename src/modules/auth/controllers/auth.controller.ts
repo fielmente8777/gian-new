@@ -10,7 +10,6 @@ import type { GoogleLoginBody } from "../dtos/google-login.dto.js";
 import type { LoginInput } from "../dtos/login.dto.js";
 import type { RefreshBody } from "../dtos/refresh.dto.js";
 import type { RegisterBody } from "../dtos/register.dto.js";
-import type { SwitchAccountBody } from "../dtos/switch-account.dto.js";
 import { InvalidRefreshTokenError } from "../errors/auth.errors.js";
 import type { AuthService } from "../services/auth.service.js";
 import type { SessionService } from "../services/session.service.js";
@@ -85,14 +84,6 @@ export class AuthController extends BaseController {
     const { currentPassword, newPassword } = req.body as ChangePasswordBody;
     await this.auth.changePassword(context.userId, currentPassword, newPassword, context.sessionId);
     this.noContent(res);
-  }
-
-  /** Staff only: a short access token for a client account, naming the staff member. */
-  async switchAccount(req: Request, res: Response): Promise<void> {
-    const context = AuthContext.of(req);
-    const target = await this.auth.switchAccount(context, req.body as SwitchAccountBody);
-    const token = await this.sessions.switchInto(target, { sub: context.userId, email: context.email });
-    this.ok(res, SessionResponseDto.switched(token, target, context.email));
   }
 
   /** Turns an old nexon token into a new session, so a logged-in user moves over without typing a password. */

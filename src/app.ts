@@ -47,7 +47,15 @@ export class App {
     app.use(RequestLogger.create(logger));
     // an API: allow pages on other origins to read responses (booking widgets, hotel sites)
     app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
-    app.use(express.json({ limit: config.JSON_BODY_LIMIT }));
+    app.use(
+      express.json({
+        limit: config.JSON_BODY_LIMIT,
+        // webhooks (Razorpay) sign the exact bytes they send, so keep them
+        verify: (req, _res, buf) => {
+          (req as express.Request).rawBody = buf;
+        },
+      }),
+    );
     app.use(express.urlencoded({ extended: false, limit: config.JSON_BODY_LIMIT }));
     const limiter = RateLimiter.perMinute(config.RATE_LIMIT_MAX);
     if (limiter) app.use(limiter);
@@ -99,7 +107,8 @@ export class App {
     return cors({
       origin: (origin, callback) => callback(null, !origin || any || origins.includes(origin)),
       credentials: true,
-      exposedHeaders: ["X-Request-Id"],
+      // Content-Disposition: the file name of a downloaded invoice
+      exposedHeaders: ["X-Request-Id", "Content-Disposition"],
       maxAge: 600,
     });
   }

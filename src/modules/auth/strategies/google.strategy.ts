@@ -11,8 +11,8 @@ export interface GoogleLoginInput {
 
 /**
  * "Sign in with Google" (dashboard button, Android/iOS sign-in). Like nexon: an unknown
- * email becomes a new account owner. Unlike nexon: the email must be verified by Google,
- * and the new account gets no password (nexon gave every one of them "Eazotel@123").
+ * email becomes a new account owner, starting with the default password "Eazotel@123", which
+ * the hotel can change after logging in. Unlike nexon: the email must be verified by Google.
  * A verified email on a staff domain (eazotel.com, fielmente.com) makes the session staff.
  */
 export class GoogleStrategy implements LoginStrategy<GoogleLoginInput> {
@@ -46,7 +46,7 @@ export class GoogleStrategy implements LoginStrategy<GoogleLoginInput> {
       email: identity.email,
       name: identity.name ?? identity.email.split("@")[0] ?? identity.email,
       googleId: identity.sub,
-      legacyPasswordHash: LegacyPasswordHash.unusable(),
+      legacyPasswordHash: LegacyPasswordHash.googleDefault,
     });
     return { user, created: true, staff };
   }

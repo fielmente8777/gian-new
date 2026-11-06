@@ -40,6 +40,7 @@ export async function startApp(env: Record<string, string> = {}) {
     refreshTokens,
     events,
     legacy: new LegacyTokenService(config.auth),
+    clientAccountTokens: auth.clientAccountTokens,
     close: () => server.close(),
   };
 }

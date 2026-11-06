@@ -1,12 +1,7 @@
 import type { EventBus } from "../../../shared/events/event-bus.js";
 import { NotFoundError } from "../../../shared/errors/http-errors.js";
 import type { UserRecord, UsersPort } from "../../users/index.js";
-import {
-  AccountInactiveError,
-  EmailTakenError,
-  InvalidCredentialsError,
-  StaffOnlyError,
-} from "../errors/auth.errors.js";
+import { AccountInactiveError, EmailTakenError, InvalidCredentialsError } from "../errors/auth.errors.js";
 import "../events/auth.events.js";
 import type { GoogleLoginInput, GoogleStrategy } from "../strategies/google.strategy.js";
 import type { LoginResult } from "../strategies/login.strategy.js";
@@ -23,9 +18,6 @@ export interface RegisterInput {
   name: string;
   phone?: string;
 }
-
-/** Which client account a staff member wants to open: by owner email or by tenant id. */
-export type SwitchTarget = { email: string } | { ndid: string };
 
 /**
  * Answers "who is this user?" for every login method, and owns the account rules
@@ -83,26 +75,6 @@ export class AuthService {
     await this.credentials.setPassword(userId, newPassword);
     await this.sessions.endOthers(userId, keepSessionId);
     this.events.emit("user.password_changed", { userId });
-  }
-
-  /**
-   * A staff member opens a client account (replaces nexon /admin/switch-account, which
-   * signed any body for anyone). Returns the account owner; every switch is an event
-   * (audit trail) and the resulting token names the staff member.
-   */
-  async switchAccount(actor: AuthContext, target: SwitchTarget): Promise<UserRecord> {
-    if (!actor.isStaff) throw new StaffOnlyError();
-    const user =
-      "email" in target ? await this.users.findByEmail(target.email) : await this.users.findOwnerByNdid(target.ndid);
-    if (!user) throw new NotFoundError("Client account not found", { code: "ACCOUNT_NOT_FOUND" });
-    if (!user.isActive) throw new AccountInactiveError();
-    this.events.emit("user.account_switched", {
-      actorId: actor.userId,
-      actorEmail: actor.email,
-      userId: user.id,
-      ndid: user.ndid ?? "",
-    });
-    return user;
   }
 
   async getUser(userId: string): Promise<UserRecord> {

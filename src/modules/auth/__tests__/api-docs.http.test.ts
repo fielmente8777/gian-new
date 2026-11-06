@@ -30,7 +30,6 @@ describe("API docs (/docs, generated from the routes)", () => {
       "GET /api/v1/auth/me",
       "POST /api/v1/auth/password",
       "POST /api/v1/auth/legacy/exchange",
-      "POST /api/v1/auth/switch-account",
       "GET /.well-known/jwks.json",
       "POST /eazotel/ceateuser",
       "POST /user/googleauth",

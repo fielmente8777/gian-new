@@ -26,6 +26,7 @@ import { LegacyTokenService } from "./services/legacy-token.service.js";
 import { PasswordService } from "./services/password.service.js";
 import { RefreshTokenService } from "./services/refresh-token.service.js";
 import { SessionService } from "./services/session.service.js";
+import { ClientAccountTokens } from "./services/client-account-tokens.js";
 import { StaffPolicy } from "./services/staff.policy.js";
 import { TokenService } from "./services/token.service.js";
 import { AccessTokenStrategy } from "./strategies/access-token.strategy.js";
@@ -57,6 +58,8 @@ export interface AuthModuleDeps {
 export class AuthModule implements AppModule {
   readonly name = "auth";
   readonly router: Router;
+  /** for the admin console: a short token to open a hotel's dashboard as that hotel */
+  readonly clientAccountTokens: ClientAccountTokens;
   readonly rootRouter: Router;
   readonly legacyRouter?: Router;
   readonly authenticate: AuthenticateMiddleware;
@@ -96,7 +99,8 @@ export class AuthModule implements AppModule {
       config.AUTH_REFRESH_TTL_DAYS,
       config.AUTH_JWT_AUDIENCE,
     );
-    const sessions = new SessionService(this.tokens, refreshTokens, users, staffPolicy, config.AUTH_IMPERSONATION_TTL);
+    const sessions = new SessionService(this.tokens, refreshTokens, users, staffPolicy);
+    this.clientAccountTokens = new ClientAccountTokens(legacyTokens, Duration.toSeconds(config.AUTH_IMPERSONATION_TTL));
     const auth = new AuthService(
       users,
       new PasswordStrategy(users, credentials, passwords),
@@ -110,11 +114,6 @@ export class AuthModule implements AppModule {
     const strategies: TokenStrategy[] = [new AccessTokenStrategy(this.tokens)];
     if (legacyTokens.enabled) strategies.push(new LegacyTokenStrategy(legacyTokens, users, staffPolicy));
     this.authenticate = new AuthenticateMiddleware(strategies);
-
-    // audit trail: who opened which client account (to a collection once the audit module exists)
-    events.on("user.account_switched", (event) => {
-      logger.info({ audit: "account_switched", ...event }, "staff switched into a client account");
-    });
 
     // HTTP
     const loginLimit = (onLimit?: Parameters<typeof RateLimiter.create>[0]["onLimit"]) =>
@@ -140,13 +139,7 @@ export class AuthModule implements AppModule {
       const legacyLimit = loginLimit((_req, res) => {
         res.status(429).json({ ...AuthLegacyMapper.failure(), Message: "Too many attempts, try again in 15 minutes" });
       });
-      const legacyController = new AuthLegacyController(
-        auth,
-        legacyTokens,
-        users,
-        logger,
-        Duration.toSeconds(config.AUTH_IMPERSONATION_TTL),
-      );
+      const legacyController = new AuthLegacyController(auth, legacyTokens, users, logger);
       this.legacyRouter = new AuthLegacyRoutes(legacyController, this.authenticate, legacyLimit).router;
     } else {
       logger.warn(

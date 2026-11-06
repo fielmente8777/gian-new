@@ -53,125 +53,73 @@ describe("mobile app (X-Client-Platform: android)", () => {
   });
 });
 
-describe("staff (Eazotel + Fielmente team)", () => {
+describe("staff (Eazotel + Fielmente team) on the hotel API", () => {
   let app: Awaited<ReturnType<typeof startApp>>;
   let client: { email: string; ndid: string | null };
-  const audit: unknown[] = [];
 
   before(async () => {
     app = await startApp();
-    app.events.on("user.account_switched", (event) => {
-      audit.push(event);
-    });
     client = app.users.add({ email: "gm@sunrise-hotel.test", scopes: ["cms"] }, LegacyPasswordHash.of("client-pass"));
     app.users.add({ email: "dev@eazotel.com" }, LegacyPasswordHash.of("staff-pass"));
+    app.users.add({ email: "lead@eazotel.com", googleId: "google-sub-lead" }, LegacyPasswordHash.of("x-pass"));
   });
   after(() => app.close());
 
   const googleLogin = async (email: string) =>
     (await readJson(app.post("/api/v1/auth/google", { idToken: `google:${email}:sub-${email}` }))).data;
 
-  it("Google sign-in on @eazotel.com and @fielmente.com is staff; other domains are not", async () => {
+  it("Google sign-in on @eazotel.com and @fielmente.com is flagged staff; other domains and password logins are not", async () => {
     assert.equal((await googleLogin("dev@eazotel.com")).isStaff, true);
-    assert.equal((await googleLogin("ops@fielmente.com")).isStaff, true);
     assert.equal((await googleLogin("someone@gmail.com")).isStaff, false);
     assert.equal(decodeJwt((await googleLogin("ops@fielmente.com")).accessToken).staff, true);
-  });
-
-  it("a password login is never staff, even with a staff email", async () => {
     const { data } = await readJson(
       app.post("/api/v1/auth/login", { email: "dev@eazotel.com", password: "staff-pass" }),
     );
     assert.equal(data.isStaff, false);
-    const res = await app.post(
-      "/api/v1/auth/switch-account",
-      { email: client.email },
-      { authorization: `Bearer ${data.accessToken}` },
-    );
-    assert.equal(res.status, 403);
-    assert.equal((await readJson(res)).error.code, "STAFF_ONLY");
   });
 
-  it("staff switch into a client: short token for the client, naming the staff member, audited", async () => {
+  it("the staff flag no longer opens client accounts: /api/v1/auth/switch-account is gone", async () => {
     const staff = await googleLogin("ops@fielmente.com");
     const res = await app.post(
       "/api/v1/auth/switch-account",
       { ndid: client.ndid },
       { authorization: `Bearer ${staff.accessToken}` },
     );
-    assert.equal(res.status, 200);
-    const { data } = await readJson(res);
-    assert.equal(data.user.email, client.email);
-    assert.deepEqual(data.switchedBy, { email: "ops@fielmente.com" });
-    assert.equal("refreshToken" in data, false);
-
-    const claims = decodeJwt(data.accessToken);
-    assert.equal(claims.ndid, client.ndid);
-    assert.equal(claims.staff, false);
-    assert.equal((claims.act as { email: string }).email, "ops@fielmente.com");
-    assert.ok(Number(claims.exp) - Number(claims.iat) === 3600);
-
-    const me = await readJson(app.get("/api/v1/auth/me", data.accessToken));
-    assert.deepEqual(me.data.switchedBy, { email: "ops@fielmente.com" });
-    assert.equal(me.data.isStaff, false);
-
-    // cannot switch again from inside a client account
-    const chained = await app.post(
-      "/api/v1/auth/switch-account",
-      { email: "dev@eazotel.com" },
-      { authorization: `Bearer ${data.accessToken}` },
-    );
-    assert.equal(chained.status, 403);
-    assert.ok(audit.length >= 1);
+    assert.equal(res.status, 404);
   });
 
-  it("staff refresh keeps staff; unknown client → 404", async () => {
-    const res = await app.post("/api/v1/auth/google", { idToken: "google:dev@eazotel.com:sub-dev" });
-    const refreshed = await readJson(
-      fetch(`${app.base}/api/v1/auth/refresh`, { method: "POST", headers: { cookie: cookieOf(res)!.split(";")[0]! } }),
-    );
-    assert.equal(refreshed.data.isStaff, true);
-    const missing = await app.post(
-      "/api/v1/auth/switch-account",
-      { email: "nobody@nowhere.test" },
-      { authorization: `Bearer ${refreshed.data.accessToken}` },
-    );
-    assert.equal(missing.status, 404);
+  it("old dashboard path POST /admin/switch-account never returns a token, whoever asks", async () => {
+    const callers: Record<string, string>[] = [
+      {},
+      { authorization: `Bearer ${await app.legacy.sign(client.email)}` },
+      // was accepted as staff before: staff domain + Google-linked account
+      { authorization: `Bearer ${await app.legacy.sign("lead@eazotel.com")}` },
+    ];
+    for (const headers of callers) {
+      const res = await app.post("/admin/switch-account", { Email: client.email }, headers);
+      assert.equal(res.status, 403);
+      const body = await readJson(res);
+      assert.equal(body.Status, false);
+      assert.equal(body.Token, undefined);
+      assert.match(body.Message, /admin console/);
+    }
   });
+});
 
-  describe("old dashboard path POST /admin/switch-account (nexon signed any body for anyone)", () => {
-    it("rejects callers without a token, and non-staff tokens", async () => {
-      assert.equal((await app.post("/admin/switch-account", { Email: client.email })).status, 401);
-      const clientToken = await app.legacy.sign(client.email);
-      const res = await app.post(
-        "/admin/switch-account",
-        { Email: "dev@eazotel.com" },
-        { authorization: `Bearer ${clientToken}` },
-      );
-      assert.equal(res.status, 403);
-      assert.equal((await readJson(res)).Status, false);
-    });
-
-    it("staff with an old token (staff domain + Google-linked account) get a 1-hour nexon token for the client", async () => {
-      app.users.add({ email: "lead@eazotel.com", googleId: "google-sub-lead" }, LegacyPasswordHash.of("x-pass"));
-      const staffToken = await app.legacy.sign("lead@eazotel.com");
-      const body = await readJson(
-        app.post("/admin/switch-account", { Email: client.email }, { authorization: `Bearer ${staffToken}` }),
-      );
-      assert.equal(body.Status, true);
-      const claims = decodeJwt(body.Token);
-      assert.equal(claims.Email, client.email);
-      assert.ok(Number(claims.exp) - Date.now() / 1000 <= 3600 + 5);
-    });
-
-    it("an old token on a staff domain that was never linked to Google is not staff", async () => {
-      app.users.add({ email: "typed@eazotel.com" }, LegacyPasswordHash.of("y-pass"));
-      const res = await app.post(
-        "/admin/switch-account",
-        { Email: client.email },
-        { authorization: `Bearer ${await app.legacy.sign("typed@eazotel.com")}` },
-      );
-      assert.equal(res.status, 403);
-    });
+describe("ClientAccountTokens (what the admin console's Open account uses)", () => {
+  it("signs a 1-hour nexon-style token for the account holder that the hotel API accepts", async () => {
+    const app = await startApp();
+    try {
+      const owner = app.users.add({ email: "gm@sunrise-hotel.test" });
+      const { token, expiresAt } = await app.clientAccountTokens.issue(owner.email);
+      const claims = decodeJwt(token);
+      assert.equal(claims.Email, owner.email);
+      assert.ok(Math.abs(Number(claims.exp) * 1000 - expiresAt.getTime()) < 2000);
+      assert.ok(expiresAt.getTime() - Date.now() <= 3_600_000 + 1000);
+      const me = await readJson(app.get("/api/v1/auth/me", token));
+      assert.equal(me.data.email, owner.email);
+    } finally {
+      app.close();
+    }
   });
 });

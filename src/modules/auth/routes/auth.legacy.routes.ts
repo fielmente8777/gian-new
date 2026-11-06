@@ -62,14 +62,13 @@ export class AuthLegacyRoutes extends BaseRoutes {
       "/admin/switch-account",
       {
         ...LEGACY,
-        summary: "Staff: open a client account (returns a 1-hour nexon-style token)",
+        summary: "Retired: always 403. Staff open client accounts from the admin console",
         description:
-          "Fixed version of nexon's path, which signed any body for anyone. Use `POST /api/v1/auth/switch-account` in new code.",
+          "nexon signed a token for anyone who asked. Use `POST /api/v1/admin/clients/{ndid}/open-account` with an admin token.",
         body: LegacySwitchDto,
         response: { schema: legacyStatusSchema },
-        errors: { 403: "not staff: `{ Status: false, Message }`" },
+        errors: { 403: "always: `{ Status: false, Message }`" },
       },
-      auth.require(),
       c.switchAccount,
     );
   }

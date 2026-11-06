@@ -41,9 +41,13 @@ describe("CredentialService (password checks while nexon and gian-new both run)"
     assert.equal(await service.verify(user.id, "new-pass"), true);
   });
 
-  it('never accepts nexon\'s Google sign-up default password "Eazotel@123"', async () => {
+  it('accepts the Google sign-up default password "Eazotel@123", until the hotel changes it', async () => {
     const user = users.add({ email: "g@hotel.test" }, LegacyPasswordHash.googleDefault);
+    assert.equal(await service.verify(user.id, "wrong"), false);
+    assert.equal(await service.verify(user.id, "Eazotel@123"), true);
+    await service.setPassword(user.id, "hotels-own-password");
     assert.equal(await service.verify(user.id, "Eazotel@123"), false);
+    assert.equal(await service.verify(user.id, "hotels-own-password"), true);
   });
 
   it("setPassword keeps nexon in sync while AUTH_LEGACY_PASSWORD_SYNC is on", async () => {

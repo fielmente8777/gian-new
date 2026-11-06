@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import type { UserRecord } from "../../users/index.js";
 import type { AuthContext } from "../types/auth-context.js";
-import type { IssuedToken, Session } from "../types/auth.types.js";
+import type { Session } from "../types/auth.types.js";
 
 // Response shapes of /api/v1/auth. The zod schemas document the API (/docs); the types the
 // code builds are inferred from them, so docs and code cannot disagree.
@@ -30,19 +30,16 @@ const tokenFields = {
 
 export const sessionResponseSchema = z.object({
   ...tokenFields,
-  isStaff: z.boolean().meta({ description: "Eazotel / Fielmente team: may list clients and switch accounts" }),
+  isStaff: z.boolean().meta({
+    description:
+      "signed in with Google on a staff domain. Grants nothing today: staff open client accounts from the admin console",
+  }),
   user: authUserSchema,
   refreshToken: z.string().optional().meta({
     description:
       "**mobile app only** (`X-Client-Platform: android|ios`). Browsers get it as an httpOnly cookie instead",
   }),
   refreshTokenExpiresAt: z.iso.datetime().optional().meta({ description: "mobile app only" }),
-});
-
-export const switchResponseSchema = z.object({
-  ...tokenFields,
-  user: authUserSchema,
-  switchedBy: z.object({ email: z.string() }),
 });
 
 export const meResponseSchema = authUserSchema.extend({
@@ -61,7 +58,6 @@ export const jwksSchema = z.object({
 
 export type AuthUserResponse = z.infer<typeof authUserSchema>;
 export type SessionResponse = z.infer<typeof sessionResponseSchema>;
-export type SwitchResponse = z.infer<typeof switchResponseSchema>;
 export type MeResponse = z.infer<typeof meResponseSchema>;
 
 export class AuthUserDto {
@@ -111,16 +107,6 @@ export class SessionResponseDto {
             refreshTokenExpiresAt: session.refreshToken.expiresAt.toISOString(),
           }
         : {}),
-    };
-  }
-
-  static switched(token: IssuedToken, user: UserRecord, actorEmail: string): SwitchResponse {
-    return {
-      accessToken: token.token,
-      tokenType: "Bearer",
-      expiresAt: token.expiresAt.toISOString(),
-      user: AuthUserDto.from(user),
-      switchedBy: { email: actorEmail },
     };
   }
 }

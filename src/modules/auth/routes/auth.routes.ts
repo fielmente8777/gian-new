@@ -3,13 +3,12 @@ import type { RequestHandler } from "express";
 import type { HeaderDoc } from "../../../shared/docs/route-doc.js";
 import { BaseRoutes } from "../../../shared/http/base-routes.js";
 import type { AuthController } from "../controllers/auth.controller.js";
-import { meResponseSchema, sessionResponseSchema, switchResponseSchema } from "../dtos/auth-response.dto.js";
+import { meResponseSchema, sessionResponseSchema } from "../dtos/auth-response.dto.js";
 import { ChangePasswordDto } from "../dtos/change-password.dto.js";
 import { GoogleLoginDto } from "../dtos/google-login.dto.js";
 import { LoginDto } from "../dtos/login.dto.js";
 import { RefreshDto } from "../dtos/refresh.dto.js";
 import { RegisterDto } from "../dtos/register.dto.js";
-import { SwitchAccountDto } from "../dtos/switch-account.dto.js";
 import type { AuthenticateMiddleware } from "../middlewares/authenticate.middleware.js";
 
 const CLIENT_HEADERS: HeaderDoc[] = [
@@ -113,22 +112,6 @@ export class AuthRoutes extends BaseRoutes {
       },
       auth.require(),
       c.exchangeLegacyToken,
-    );
-
-    this.post(
-      "/switch-account",
-      {
-        summary: "Staff: open a client account",
-        description:
-          "Eazotel / Fielmente staff only (signed in with Google). Returns a 1-hour access token for the client account that names " +
-          "the staff member (`act` claim); no refresh token, no switching further. Every switch is audited.",
-        tags: ["Staff"],
-        body: SwitchAccountDto,
-        response: { schema: switchResponseSchema },
-        errors: { 403: "STAFF_ONLY, ACCOUNT_INACTIVE", 404: "ACCOUNT_NOT_FOUND" },
-      },
-      auth.require(),
-      c.switchAccount,
     );
   }
 }
