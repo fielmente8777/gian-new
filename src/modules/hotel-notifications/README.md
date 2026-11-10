@@ -31,11 +31,14 @@ gian sends them: digits with the country code (a 10-digit number gets `91`).
 
 ## What gian does with them
 
-- **Email**: sent only when `isEmailAllowed` is true, to the hotel's email plus `email[]`.
+- **Email**: sent to the hotel's email plus `email[]`, unless `isEmailAllowed` is saved as false
+  (before 2026-11-09 gian only emailed when it was true).
 - **WhatsApp**: sent to the hotel's phone, plus `phone[]` while `isPhoneAllowed` is true.
   Nothing is sent when `isPhoneAllowed` is saved as false (gian `AlertSettings`; before
   2026-11-05 gian ignored this switch).
-- A property that never saved settings: no email, WhatsApp to the hotel's phone.
+- A property that never saved settings, or a source it never set: every alert on (email to
+  the hotel's email, WhatsApp to the hotel's phone). Only a switch the hotel or staff turned
+  off stops one.
 
 These sit below the master switches in client-services. While a client's Leads switch is off,
 or its subscription is paused, expired or has ended, no alert goes out whatever these say. The

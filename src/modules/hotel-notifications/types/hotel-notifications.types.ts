@@ -30,11 +30,11 @@ export interface PropertyAlerts {
 }
 
 /**
- * What gian does for a property that never saved settings: no email (it only emails when
- * isEmailAllowed is on), and WhatsApp to the hotel's phone (it only skips when isPhoneAllowed
- * is saved off).
+ * What gian does for a property that never saved settings: every alert on, email to the
+ * hotel's email and WhatsApp to the hotel's phone. gian only skips an alert whose switch
+ * (isEmailAllowed / isPhoneAllowed) is saved false (since 2026-11-09 for email).
  */
-export const DEFAULT_ALERTS: Readonly<SourceAlerts> = { email: false, emails: [], whatsapp: true, phones: [] };
+export const DEFAULT_ALERTS: Readonly<SourceAlerts> = { email: true, emails: [], whatsapp: true, phones: [] };
 
 /** The hotelnotifications collection, shared with gian and the hotel dashboard. */
 export interface HotelNotificationsPort {

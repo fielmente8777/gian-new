@@ -16,6 +16,7 @@ import {
 import type { BillingPort } from "../billing/index.js";
 import type { ClientArchivePort } from "../client-archive/index.js";
 import type { HotelNotificationsPort } from "../hotel-notifications/index.js";
+import type { MetaPagesPort } from "../meta-pages/index.js";
 import type { SubscriptionsPort } from "../subscriptions/index.js";
 import type { ProfilesPort } from "../profiles/index.js";
 import type { UsersPort } from "../users/index.js";
@@ -24,6 +25,7 @@ import { AdminAuditController } from "./controllers/admin-audit.controller.js";
 import { AdminBillingController } from "./controllers/admin-billing.controller.js";
 import { AdminAuthController } from "./controllers/admin-auth.controller.js";
 import { AdminClientsController } from "./controllers/admin-clients.controller.js";
+import { AdminMetaPagesController } from "./controllers/admin-meta-pages.controller.js";
 import { AdminSubscriptionsController } from "./controllers/admin-subscriptions.controller.js";
 import { AdminRefreshCookie } from "./controllers/admin-refresh-cookie.js";
 import { AdminTeamController } from "./controllers/admin-team.controller.js";
@@ -35,6 +37,7 @@ import { AdminAuditRoutes } from "./routes/admin-audit.routes.js";
 import { AdminBillingRoutes } from "./routes/admin-billing.routes.js";
 import { AdminAuthRoutes } from "./routes/admin-auth.routes.js";
 import { AdminClientsRoutes } from "./routes/admin-clients.routes.js";
+import { AdminMetaPagesRoutes } from "./routes/admin-meta-pages.routes.js";
 import { AdminSubscriptionsRoutes } from "./routes/admin-subscriptions.routes.js";
 import { AdminTeamRoutes } from "./routes/admin-team.routes.js";
 import { AdminRoutes } from "./routes/admin.routes.js";
@@ -46,6 +49,7 @@ import {
   type ClientAccountIssuer,
   type ServiceControl,
 } from "./services/admin-clients.service.js";
+import { AdminMetaPagesService } from "./services/admin-meta-pages.service.js";
 import { AdminSubscriptionsService } from "./services/admin-subscriptions.service.js";
 import { AdminOtpService } from "./services/admin-otp.service.js";
 import { AdminSessionService } from "./services/admin-session.service.js";
@@ -75,6 +79,8 @@ export interface AdminModuleDeps {
   hotelNotifications: HotelNotificationsPort;
   /** plans, prices, offers and payments (billing module) */
   billing: BillingPort;
+  /** Facebook pages from the Meta sign-ins and the client each one's leads go to (meta-pages module) */
+  metaPages: MetaPagesPort;
   /** Tests replace the Mongo stores and Google with fakes. */
   overrides?: {
     admins?: AdminUserStore;
@@ -111,6 +117,7 @@ export class AdminModule implements AppModule {
       clientArchive,
       hotelNotifications,
       billing,
+      metaPages,
       overrides = {},
     } = deps;
 
@@ -182,6 +189,10 @@ export class AdminModule implements AppModule {
         this.authenticate,
       ),
       new AdminBillingRoutes(new AdminBillingController(new AdminBillingService(billing, audit)), this.authenticate),
+      new AdminMetaPagesRoutes(
+        new AdminMetaPagesController(new AdminMetaPagesService(metaPages, profiles, audit)),
+        this.authenticate,
+      ),
       new AdminAuditRoutes(new AdminAuditController(audit), this.authenticate),
     ).router;
   }

@@ -66,6 +66,9 @@ export const ADMIN_AUDIT_ACTIONS = [
   "billing.offer_updated",
   "billing.invoice_created",
   "billing.invoice_emailed",
+  "meta_page.linked",
+  "meta_page.unlinked",
+  "meta_pages.synced",
 ] as const;
 export type AdminAuditAction = (typeof ADMIN_AUDIT_ACTIONS)[number];
 

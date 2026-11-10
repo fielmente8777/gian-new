@@ -13,6 +13,8 @@ export const ADMIN_ADVANCED_PERMISSIONS = [
   "billing.view",
   // plans, prices, add-on apps, billing cycles, GST and offers
   "billing.manage",
+  // every Facebook page from the Meta sign-ins, and which client gets each page's leads
+  "meta_pages.manage",
 ] as const;
 
 export const ADMIN_SUPER_PERMISSIONS = ["team.manage", "audit.view", "clients.delete"] as const;

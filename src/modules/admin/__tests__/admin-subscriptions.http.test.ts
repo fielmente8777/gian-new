@@ -20,6 +20,7 @@ import { adminConfig } from "../config/admin.config.js";
 import { AdminSubscriptionsService } from "../services/admin-subscriptions.service.js";
 import type { AdminRecord } from "../types/admin.types.js";
 import { InMemoryHotelNotifications } from "../../hotel-notifications/__tests__/fakes.js";
+import { TestMetaPages } from "../../meta-pages/__tests__/fakes.js";
 import { InMemoryClientArchive } from "../../client-archive/__tests__/fakes.js";
 import { FakeClientAccounts, FakeMailbox, InMemoryAdmins, InMemoryAuditLog, InMemoryChallenges } from "./fakes.js";
 
@@ -96,6 +97,7 @@ describe("admin subscriptions", () => {
       clientArchive: new InMemoryClientArchive(),
       hotelNotifications: new InMemoryHotelNotifications(),
       billing: TestBillingPort.create().port,
+      metaPages: TestMetaPages.create().port,
       overrides: {
         admins,
         challenges: new InMemoryChallenges(),

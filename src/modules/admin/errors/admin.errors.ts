@@ -127,3 +127,22 @@ export class OtpSendFailedError extends ServiceUnavailableError {
     super("The sign-in code could not be emailed. Please try again.", { code: "OTP_SEND_FAILED", cause });
   }
 }
+
+export class MetaPageNotFoundError extends NotFoundError {
+  constructor() {
+    super("No Meta connection has this page", { code: "META_PAGE_NOT_FOUND" });
+  }
+}
+
+export class MetaConnectionNotFoundError extends NotFoundError {
+  constructor() {
+    super("This Meta connection does not exist", { code: "META_CONNECTION_NOT_FOUND" });
+  }
+}
+
+/** An admin may only move pages that are unlinked or linked to one of their own properties. */
+export class MetaPageOutOfScopeError extends ForbiddenError {
+  constructor() {
+    super("This page belongs to a client outside your properties", { code: "META_PAGE_OUT_OF_SCOPE" });
+  }
+}

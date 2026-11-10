@@ -211,7 +211,7 @@ const sourceAlertsSchema = z.object({
 const propertyAlertsSchema = z.object({
   hid: z.string(),
   name: z.string().nullable(),
-  saved: z.boolean().meta({ description: "false: never saved, gian's defaults apply (no email, WhatsApp on)" }),
+  saved: z.boolean().meta({ description: "false: never saved, gian's defaults apply (every alert on)" }),
   sources: z.object(Object.fromEntries(LEAD_SOURCES.map((s) => [s, sourceAlertsSchema]))),
 });
 

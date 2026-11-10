@@ -7,6 +7,7 @@ import { HealthModule } from "./modules/health/index.js";
 import { ClientArchiveModule } from "./modules/client-archive/index.js";
 import { ClientServicesModule } from "./modules/client-services/index.js";
 import { HotelNotificationsModule } from "./modules/hotel-notifications/index.js";
+import { MetaPagesModule } from "./modules/meta-pages/index.js";
 import { ProfilesModule } from "./modules/profiles/index.js";
 import { SubscriptionsModule } from "./modules/subscriptions/index.js";
 import { UsersModule } from "./modules/users/index.js";
@@ -37,6 +38,7 @@ export class Container {
     const subscriptions = new SubscriptionsModule();
     const clientArchive = new ClientArchiveModule();
     const hotelNotifications = new HotelNotificationsModule();
+    const metaPages = new MetaPagesModule();
     const mailer = MailerFactory.create(config.mail, config.app.APP_ENV, this.logger);
     const clientServices = new ClientServicesModule({
       config: config.clientServices,
@@ -96,6 +98,7 @@ export class Container {
       clientArchive: clientArchive.port,
       hotelNotifications: hotelNotifications.port,
       billing: billing.port,
+      metaPages: metaPages.port,
     });
 
     this.modules = [
@@ -106,6 +109,7 @@ export class Container {
       clientServices,
       clientArchive,
       hotelNotifications,
+      metaPages,
       auth,
       billing,
       admin,

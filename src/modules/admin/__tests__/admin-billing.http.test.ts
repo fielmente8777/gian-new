@@ -15,6 +15,7 @@ import { TestBillingPort } from "../../billing/__tests__/fakes.js";
 import { InMemoryClientArchive } from "../../client-archive/__tests__/fakes.js";
 import { TestServiceControl } from "../../client-services/__tests__/fakes.js";
 import { InMemoryHotelNotifications } from "../../hotel-notifications/__tests__/fakes.js";
+import { TestMetaPages } from "../../meta-pages/__tests__/fakes.js";
 import { InMemoryProfiles } from "../../profiles/__tests__/fakes.js";
 import { InMemorySubscriptions } from "../../subscriptions/__tests__/fakes.js";
 import { AdminModule } from "../admin.module.js";
@@ -81,6 +82,7 @@ describe("admin billing", () => {
       clientArchive: new InMemoryClientArchive(),
       hotelNotifications: new InMemoryHotelNotifications(),
       billing: billing.port,
+      metaPages: TestMetaPages.create().port,
       overrides: { admins, challenges: new InMemoryChallenges(), auditLog, refreshTokens: new InMemoryRefreshTokens(), google: new FakeGoogle() },
     });
     const server = new App({ config: config.app, logger, modules: [admin] }).express.listen(0);

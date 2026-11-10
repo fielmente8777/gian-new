@@ -19,6 +19,7 @@ import { AdminModule } from "../admin.module.js";
 import { adminConfig } from "../config/admin.config.js";
 import type { AdminRecord } from "../types/admin.types.js";
 import { InMemoryHotelNotifications } from "../../hotel-notifications/__tests__/fakes.js";
+import { TestMetaPages } from "../../meta-pages/__tests__/fakes.js";
 import { InMemoryClientArchive } from "../../client-archive/__tests__/fakes.js";
 import { FakeClientAccounts, FakeMailbox, InMemoryAdmins, InMemoryAuditLog, InMemoryChallenges } from "./fakes.js";
 
@@ -96,6 +97,7 @@ describe("admin clients", () => {
       clientArchive,
       hotelNotifications,
       billing: TestBillingPort.create().port,
+      metaPages: TestMetaPages.create().port,
       overrides: {
         admins,
         challenges: new InMemoryChallenges(),
@@ -319,7 +321,7 @@ describe("admin clients", () => {
       Object.fromEntries(
         ["webform", "eazbot", "whatsapp", "facebook", "google"].map((s) => [
           s,
-          { email: false, emails: [], whatsapp: true, phones: [], ...((over[s] as object) ?? {}) },
+          { email: true, emails: [], whatsapp: true, phones: [], ...((over[s] as object) ?? {}) },
         ]),
       );
     beforeEach(() => {
@@ -328,7 +330,7 @@ describe("admin clients", () => {
       subscriptions.rows.clear();
     });
 
-    it("shows every visible property, unsaved ones with gian's defaults (no email, WhatsApp on)", async () => {
+    it("shows every visible property, unsaved ones with gian's defaults (everything on)", async () => {
       const { data } = await json(await call("GET", ALERTS("aaa"), boss));
       assert.deepEqual(
         data.properties.map((p: { hid: string; saved: boolean }) => [p.hid, p.saved]),
@@ -337,7 +339,7 @@ describe("admin clients", () => {
           ["22222222", false],
         ],
       );
-      assert.deepEqual(data.properties[0].sources.webform, { email: false, emails: [], whatsapp: true, phones: [] });
+      assert.deepEqual(data.properties[0].sources.webform, { email: true, emails: [], whatsapp: true, phones: [] });
       assert.equal(data.leadsDelivered, true);
 
       const mine = (await json(await call("GET", ALERTS("aaa"), staff))).data;
@@ -351,20 +353,20 @@ describe("admin clients", () => {
     it("saves one property, cleans the addresses and logs each change", async () => {
       const res = await call("PUT", `${ALERTS("aaa")}/11111111`, boss, {
         sources: all({
-          webform: { email: true, emails: [" Sales@Amaltas.test ", "sales@amaltas.test"] },
+          webform: { email: false, emails: [" Sales@Amaltas.test ", "sales@amaltas.test"] },
           google: { whatsapp: false, phones: ["+91 98765-43210", "9876543210"] },
         }),
       });
       assert.equal(res.status, 200);
       const saved = hotelNotifications.saved.get("aaa/11111111")!;
-      assert.deepEqual(saved.webform, { email: true, emails: ["sales@amaltas.test"], whatsapp: true, phones: [] });
+      assert.deepEqual(saved.webform, { email: false, emails: ["sales@amaltas.test"], whatsapp: true, phones: [] });
       assert.deepEqual(saved.google.phones, ["919876543210"], "digits with the country code, once");
       assert.equal(hotelNotifications.saved.has("aaa/22222222"), false, "the other property is untouched");
 
       const logged = auditLog.rows.filter((r) => r.action === "client.notifications_changed");
       assert.equal(logged.length, 1);
       assert.deepEqual(logged[0]?.changes, {
-        "website form email": { from: "off", to: "on" },
+        "website form email": { from: "on", to: "off" },
         "website form extra emails": { from: null, to: "sales@amaltas.test" },
         "Google Ads WhatsApp": { from: "on", to: "off" },
         "Google Ads extra numbers": { from: null, to: "919876543210" },

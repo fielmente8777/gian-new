@@ -31,7 +31,7 @@ Access tokens hold only the admin's id and session. Role and permissions are rea
 |---|---|---|
 | Properties | All | Those in `assignedProperties`, with no limit. Several admins may hold the same one |
 | Base permissions (`clients.view`, `clients.edit`, `subscriptions.view`, `credits.view`) | Yes | Yes, automatically |
-| Advanced permissions (`subscriptions.manage`, `credits.manage`, `clients.open_account`, `billing.view`, `billing.manage`) | Yes | Only when a super admin gives them |
+| Advanced permissions (`subscriptions.manage`, `credits.manage`, `clients.open_account`, `billing.view`, `billing.manage`, `meta_pages.manage`) | Yes | Only when a super admin gives them |
 | Super-only permissions (`team.manage`, `audit.view`, `clients.delete`) | Yes | Never. They can't be given, only the role carries them |
 
 Rules live in `AdminPermissions`. Protect a route with `auth.require("credits.manage")`.
@@ -188,6 +188,17 @@ Built on the `billing` module (`../billing/README.md`). `billing.view` shows rev
 | `POST /admin/billing/offers`, `PATCH /admin/billing/offers/:id` | `billing.manage` | Offer codes: percent or flat, cap, plans, cycles, kinds, dates, total and per-hotel uses, private hotels, shown on pricing pages |
 
 A price change applies to purchases and renewals from then on. Periods already paid, and auto-renew mandates already set up, keep their amount.
+
+## Meta pages (Facebook lead routing)
+
+Built on the `meta-pages` module (`../meta-pages/README.md`) over gian's `pageconnections`. Every route needs `meta_pages.manage`. Holders see every page (the one to link is usually nobody's yet); an admin can only link to their own properties, and only move pages that are unlinked or already theirs (`META_PAGE_OUT_OF_SCOPE`).
+
+| Route | What it does |
+| --- | --- |
+| `GET /admin/meta-pages` | Every page once, merged over all sign-ins: `link` (where new leads go, with hotel/property names), `conflict`, each copy; the sign-ins; counts |
+| `PUT /admin/meta-pages/:pageId/link` `{ ndid, hid }` | Writes the link to the page in every sign-in that has it. Leads already saved don't move. Logged `meta_page.linked` |
+| `DELETE /admin/meta-pages/:pageId/link` | Unlinks it everywhere: new leads reach no client. Logged `meta_page.unlinked` |
+| `POST /admin/meta-pages/connections/:connectionId/sync` | Fetches the sign-in's pages from Meta again with its saved token, keeps links, subscribes lead webhooks. Logged `meta_pages.synced` |
 
 ## Status and next steps (keep this updated)
 

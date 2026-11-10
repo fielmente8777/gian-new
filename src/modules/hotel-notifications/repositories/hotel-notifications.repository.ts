@@ -77,8 +77,8 @@ export class HotelNotificationsRepository implements HotelNotificationsPort {
       const c = doc?.config?.[source];
       if (!c) continue;
       sources[source] = {
-        // gian emails only when isEmailAllowed is true, and skips WhatsApp only when it is saved false
-        email: c.isEmailAllowed === true,
+        // gian skips an alert only when its switch is saved false (gian AlertSettings)
+        email: c.isEmailAllowed !== false,
         emails: strings(c.email),
         whatsapp: c.isPhoneAllowed !== false,
         phones: strings(c.phone),
