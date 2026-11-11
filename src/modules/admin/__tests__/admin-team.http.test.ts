@@ -15,12 +15,13 @@ import { TestServiceControl } from "../../client-services/__tests__/fakes.js";
 import { InMemorySubscriptions } from "../../subscriptions/__tests__/fakes.js";
 import { InMemoryProfiles } from "../../profiles/__tests__/fakes.js";
 import { TestBillingPort } from "../../billing/__tests__/fakes.js";
+import { TestReminders } from "../../renewal-reminders/__tests__/fakes.js";
 import { AdminModule } from "../admin.module.js";
 import { adminConfig } from "../config/admin.config.js";
 import type { AdminRecord } from "../types/admin.types.js";
 import { InMemoryHotelNotifications } from "../../hotel-notifications/__tests__/fakes.js";
 import { TestMetaPages } from "../../meta-pages/__tests__/fakes.js";
-import { InMemoryClientArchive } from "../../client-archive/__tests__/fakes.js";
+import { InMemoryClientArchive, InMemoryClientTrash } from "../../client-archive/__tests__/fakes.js";
 import { FakeClientAccounts, FakeMailbox, InMemoryAdmins, InMemoryAuditLog, InMemoryChallenges } from "./fakes.js";
 
 // The real App and AdminModule over HTTP, with in-memory stores, a fake Google and a fake mailbox.
@@ -89,9 +90,11 @@ describe("admin team and audit log", () => {
       subscriptions: new InMemorySubscriptions(),
       clientAccounts: new FakeClientAccounts(),
       clientArchive: new InMemoryClientArchive(),
+      clientTrash: new InMemoryClientTrash(),
       hotelNotifications: new InMemoryHotelNotifications(),
       billing: TestBillingPort.create().port,
       metaPages: TestMetaPages.create().port,
+      reminders: TestReminders.create(new InMemorySubscriptions(), mailbox).port,
       overrides: {
         admins,
         challenges: new InMemoryChallenges(),
@@ -178,6 +181,42 @@ describe("admin team and audit log", () => {
       const [entry] = entries("team.member_added");
       assert.equal(entry?.actorEmail, "boss@eazotel.com");
       assert.equal(entry?.targetEmail, "new@eazotel.com");
+    });
+
+    it("emails the new member an invite with the console's sign-in link", async () => {
+      mailbox.sent.length = 0;
+      const res = await call("POST", TEAM, bossToken, { email: "invitee@eazotel.com", name: "Invitee" });
+      assert.equal(res.status, 201);
+      assert.equal((await json(res)).data.inviteSent, true);
+      const mail = mailbox.sent.find((m) => m.to === "invitee@eazotel.com");
+      assert.ok(mail, "the invite must go to the new member");
+      assert.match(mail.text, /http:\/\/localhost:3000\/login/);
+      assert.match(mail.text, /Boss \(boss@eazotel\.com\)/);
+      assert.doesNotMatch(mail.text, /\b\d{6}\b/, "an invite never carries a code or token");
+      assert.equal(entries("team.invite_sent").length, 1);
+    });
+
+    it("keeps the member when the invite email fails, and the invite can be sent again", async () => {
+      mailbox.failing = true;
+      const res = await call("POST", TEAM, bossToken, { email: "late@eazotel.com" });
+      mailbox.failing = false;
+      assert.equal(res.status, 201);
+      const { data } = await json(res);
+      assert.equal(data.inviteSent, false);
+      assert.equal(entries("team.invite_sent").length, 0);
+
+      const again = await call("POST", `${TEAM}/${data.id}/invite`, bossToken);
+      assert.equal(again.status, 200);
+      assert.equal((await json(again)).data.inviteSent, true);
+      assert.ok(mailbox.sent.some((m) => m.to === "late@eazotel.com"));
+    });
+
+    it("won't send an invite to someone who is turned off, and only super admins can send one", async () => {
+      assert.equal((await call("POST", `${TEAM}/${boss.id}/invite`, staffToken)).status, 403);
+      await admins.update(staff.id, { status: "disabled" });
+      const res = await call("POST", `${TEAM}/${staff.id}/invite`, bossToken);
+      assert.equal(res.status, 409);
+      assert.equal((await json(res)).error.code, "TEAM_MEMBER_DISABLED");
     });
 
     it("refuses an email already on the team, in any letter case", async () => {
@@ -302,7 +341,7 @@ describe("admin team and audit log", () => {
       const byPerson = (await json(await call("GET", `${AUDIT}?email=B@eazotel.com`, bossToken))).data;
       assert.deepEqual(
         byPerson.items.map((i: { action: string }) => i.action),
-        ["team.member_added"],
+        ["team.invite_sent", "team.member_added"],
       );
     });
 

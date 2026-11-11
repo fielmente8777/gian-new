@@ -140,3 +140,33 @@ export class PaymentNotPaidError extends BadRequestError {
     super("Only a paid payment gets an invoice", { code: "PAYMENT_NOT_PAID" });
   }
 }
+
+// ─── Zoho Books ──────────────────────────────────────────────────────────────────────
+
+export class ZohoNotConfiguredError extends ServiceUnavailableError {
+  constructor() {
+    super("Zoho Books is not set up on the server (ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ZOHO_TOKEN_KEY)", {
+      code: "ZOHO_NOT_CONFIGURED",
+    });
+  }
+}
+
+export class ZohoNotConnectedError extends ConflictError {
+  constructor(message = "Connect Zoho Books first (Billing → Zoho Books)") {
+    super(message, { code: "ZOHO_NOT_CONNECTED" });
+  }
+}
+
+export class ZohoInvoiceNotFoundError extends NotFoundError {
+  constructor() {
+    super("This Zoho invoice is not known here. Run Sync now first.", { code: "ZOHO_INVOICE_NOT_FOUND" });
+  }
+}
+
+export class ZohoInvoiceNotApplicableError extends ConflictError {
+  constructor() {
+    super("Only a paid invoice that hasn't been applied or set aside can be applied", {
+      code: "ZOHO_INVOICE_NOT_APPLICABLE",
+    });
+  }
+}

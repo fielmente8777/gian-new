@@ -152,7 +152,21 @@ follow a payment made here.
 
 ## Not built yet
 
-- Renewal reminder emails 7 / 3 / 1 days before the end (auto-renew covers hotels that turn it on).
+- (Renewal reminders: built 2026-11-11 in `modules/renewal-reminders`, email + WhatsApp.)
 - Credit notes for refunds (refunds themselves are done in Razorpay's dashboard).
 - Refunds (done in Razorpay's dashboard by hand).
 - Enforcing team-member and property limits (shown on the plans and subscription pages).
+
+## Zoho Books (added 2026-11-11)
+
+A second way to pay, for the team that already invoices in Zoho Books. Razorpay stays the default; nothing changes until a super admin flips the switch.
+
+**Switch** (`zoho_connection` `_id: "payment_setup"`, admin `PUT /admin/zoho/provider`): `razorpay` (default) or `zoho`. With `zoho`, `POST /billing/checkout` answers `status: "invoice"`: a Zoho invoice made from the same server quote (lines for the whole period, the cycle discount + offer + credit as one discount before tax, the GST tax chosen in the console), marked sent, with its payment page in `invoiceUrl`. Auto-renew can't be turned on meanwhile; existing Razorpay mandates keep charging. If Zoho isn't configured on a server, checkout ignores the saved switch and stays on Razorpay. Disconnecting while on Zoho puts the switch back on Razorpay.
+
+**Getting paid:** our order id (`zinv_…`) is the invoice's reference number and is stored in `zoho_invoices`. Zoho's workflow webhook (`POST /billing/webhooks/zoho?token=ZOHO_WEBHOOK_TOKEN`, body `{"invoice_id": "..."}`) and a check every 30 minutes (`ZohoPoller`, paid invoices most recently changed first) read the invoice back from Zoho's API, never trusting the body, and call the same `CheckoutService.applyPaid` as Razorpay: once only. We don't issue our own GST invoice for a Zoho payment; Zoho's is the invoice.
+
+**Invoices the team makes in Zoho Books** land in `zoho_invoices` with `source: "zoho"`. The client comes from `zoho_customer_links` (one Zoho customer ↔ one ndid, linked in the console with name/email suggestions). Staff confirm the plan and months (prefilled from the current plan and the amount); `ZohoSyncService.apply` records a payment (`zoho_<invoiceId>`, method `zoho`) and runs `PeriodActivator`: same plan = after the current end, another plan = from today. An invoice that isn't for a plan can be set aside.
+
+**Staff invoices:** `POST /admin/zoho/clients/:ndid/invoice` makes a Zoho invoice for a client at dashboard prices whichever way the switch is, and Zoho can email it.
+
+**Connection:** one OAuth connection for Eazotel's organisation (`ZohoConnectionService`): a one-time `state` in `zoho_oauth_states` (10 minutes, TTL index), the refresh token AES-256-GCM encrypted with `ZOHO_TOKEN_KEY` (`TokenCipher`), access tokens refreshed when they expire. Env: `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET`, `ZOHO_ACCOUNTS_URL`, `ZOHO_API_URL` (India data centre by default), `ZOHO_TOKEN_KEY`, `ZOHO_WEBHOOK_TOKEN`. Redirect URI: `<PUBLIC_URL>/api/v1/billing/zoho/callback`. Client: `src/integrations/zoho/zoho-books.client.ts` (fetch + zod, no SDK). Tests: `__tests__/zoho.test.ts` over `FakeZohoBooks`.

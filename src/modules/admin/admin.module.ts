@@ -14,9 +14,10 @@ import {
   type RefreshTokenStore,
 } from "../auth/index.js";
 import type { BillingPort } from "../billing/index.js";
-import type { ClientArchivePort } from "../client-archive/index.js";
+import type { ClientArchivePort, ClientTrashPort } from "../client-archive/index.js";
 import type { HotelNotificationsPort } from "../hotel-notifications/index.js";
 import type { MetaPagesPort } from "../meta-pages/index.js";
+import type { RenewalReminderService } from "../renewal-reminders/index.js";
 import type { SubscriptionsPort } from "../subscriptions/index.js";
 import type { ProfilesPort } from "../profiles/index.js";
 import type { UsersPort } from "../users/index.js";
@@ -26,6 +27,8 @@ import { AdminBillingController } from "./controllers/admin-billing.controller.j
 import { AdminAuthController } from "./controllers/admin-auth.controller.js";
 import { AdminClientsController } from "./controllers/admin-clients.controller.js";
 import { AdminMetaPagesController } from "./controllers/admin-meta-pages.controller.js";
+import { AdminRemindersController } from "./controllers/admin-reminders.controller.js";
+import { AdminZohoController } from "./controllers/admin-zoho.controller.js";
 import { AdminSubscriptionsController } from "./controllers/admin-subscriptions.controller.js";
 import { AdminRefreshCookie } from "./controllers/admin-refresh-cookie.js";
 import { AdminTeamController } from "./controllers/admin-team.controller.js";
@@ -38,6 +41,8 @@ import { AdminBillingRoutes } from "./routes/admin-billing.routes.js";
 import { AdminAuthRoutes } from "./routes/admin-auth.routes.js";
 import { AdminClientsRoutes } from "./routes/admin-clients.routes.js";
 import { AdminMetaPagesRoutes } from "./routes/admin-meta-pages.routes.js";
+import { AdminRemindersRoutes } from "./routes/admin-reminders.routes.js";
+import { AdminZohoRoutes } from "./routes/admin-zoho.routes.js";
 import { AdminSubscriptionsRoutes } from "./routes/admin-subscriptions.routes.js";
 import { AdminTeamRoutes } from "./routes/admin-team.routes.js";
 import { AdminRoutes } from "./routes/admin.routes.js";
@@ -50,10 +55,15 @@ import {
   type ServiceControl,
 } from "./services/admin-clients.service.js";
 import { AdminMetaPagesService } from "./services/admin-meta-pages.service.js";
+import { AdminRemindersService } from "./services/admin-reminders.service.js";
+import { AdminZohoService } from "./services/admin-zoho.service.js";
 import { AdminSubscriptionsService } from "./services/admin-subscriptions.service.js";
 import { AdminOtpService } from "./services/admin-otp.service.js";
 import { AdminSessionService } from "./services/admin-session.service.js";
+import { AdminBulkClientsService } from "./services/admin-bulk-clients.service.js";
+import { AdminInviteMailer } from "./services/admin-invite.mailer.js";
 import { AdminTeamService } from "./services/admin-team.service.js";
+import { AdminTestAccounts } from "./services/admin-test-accounts.js";
 import { AdminTokenService } from "./services/admin-token.service.js";
 import type { AdminAuditStore, AdminUserStore, OtpChallengeStore } from "./types/admin.types.js";
 
@@ -67,7 +77,7 @@ export interface AdminModuleDeps {
   mailer: Mailer;
   /** hotel client profiles and accounts, owned by other modules */
   profiles: ProfilesPort;
-  users: Pick<UsersPort, "findOwnerByNdid">;
+  users: Pick<UsersPort, "findOwnerByNdid" | "ownerNdidsWithEmailDomains" | "ndidsByEmail">;
   /** signs the hotel-dashboard token when staff open a client account (auth module) */
   clientAccounts: ClientAccountIssuer;
   /** the switches and the enforcer (client-services module) */
@@ -75,12 +85,16 @@ export interface AdminModuleDeps {
   subscriptions: SubscriptionsPort;
   /** deletes a client, archiving every record first (client-archive module) */
   clientArchive: ClientArchivePort;
+  /** the temporary delete: hidden clients (client-archive module) */
+  clientTrash: ClientTrashPort;
   /** each property's own lead alerts (hotel-notifications module) */
   hotelNotifications: HotelNotificationsPort;
   /** plans, prices, offers and payments (billing module) */
   billing: BillingPort;
   /** Facebook pages from the Meta sign-ins and the client each one's leads go to (meta-pages module) */
   metaPages: MetaPagesPort;
+  /** renewal reminders by email and WhatsApp (renewal-reminders module) */
+  reminders: RenewalReminderService;
   /** Tests replace the Mongo stores and Google with fakes. */
   overrides?: {
     admins?: AdminUserStore;
@@ -88,6 +102,8 @@ export interface AdminModuleDeps {
     auditLog?: AdminAuditStore;
     refreshTokens?: RefreshTokenStore;
     google?: GoogleIdentityVerifier | null;
+    /** 0 in tests: re-read the test accounts on every list */
+    testAccountsCacheMs?: number;
   };
 }
 
@@ -115,9 +131,11 @@ export class AdminModule implements AppModule {
       serviceControl,
       subscriptions,
       clientArchive,
+      clientTrash,
       hotelNotifications,
       billing,
       metaPages,
+      reminders,
       overrides = {},
     } = deps;
 
@@ -146,7 +164,8 @@ export class AdminModule implements AppModule {
     this.authenticate = new AdminAuthenticateMiddleware(tokens, this.stores.admins);
 
     const audit = new AdminAuditService(this.stores.auditLog, logger);
-    const team = new AdminTeamService(this.stores.admins, audit, refreshTokens);
+    const invites = new AdminInviteMailer(mailer, config.ADMIN_CONSOLE_URL, logger);
+    const team = new AdminTeamService(this.stores.admins, audit, refreshTokens, invites);
 
     events.on("admin.login_denied", ({ email, reason, ip }) =>
       audit.record({ action: "login.denied", actorEmail: email, details: { reason }, ip }),
@@ -163,6 +182,27 @@ export class AdminModule implements AppModule {
       limit: authConfig.AUTH_LOGIN_MAX_ATTEMPTS,
       skipSuccessfulRequests: true,
     });
+    const testAccounts = new AdminTestAccounts(users, config.ADMIN_TEST_EMAIL_DOMAINS, overrides.testAccountsCacheMs);
+    const clients = new AdminClientsService(
+      profiles,
+      users,
+      audit,
+      clientAccounts,
+      serviceControl,
+      clientArchive,
+      hotelNotifications,
+      clientTrash,
+      testAccounts,
+    );
+    const subscriptionsAdmin = new AdminSubscriptionsService(
+      subscriptions,
+      serviceControl,
+      audit,
+      () => clientTrash.ndids(),
+      testAccounts,
+    );
+    const bulkClients = new AdminBulkClientsService(clients, subscriptionsAdmin, clientTrash, audit);
+
     this.router = new AdminRoutes(
       new AdminAuthRoutes(
         new AdminAuthController(auth, sessions, new AdminRefreshCookie(authConfig, config)),
@@ -170,27 +210,16 @@ export class AdminModule implements AppModule {
         loginLimit,
       ),
       new AdminTeamRoutes(new AdminTeamController(team), this.authenticate),
-      new AdminClientsRoutes(
-        new AdminClientsController(
-          new AdminClientsService(
-            profiles,
-            users,
-            audit,
-            clientAccounts,
-            serviceControl,
-            clientArchive,
-            hotelNotifications,
-          ),
-        ),
-        this.authenticate,
-      ),
-      new AdminSubscriptionsRoutes(
-        new AdminSubscriptionsController(new AdminSubscriptionsService(subscriptions, serviceControl, audit)),
-        this.authenticate,
-      ),
+      new AdminClientsRoutes(new AdminClientsController(clients, bulkClients), this.authenticate),
+      new AdminSubscriptionsRoutes(new AdminSubscriptionsController(subscriptionsAdmin), this.authenticate),
       new AdminBillingRoutes(new AdminBillingController(new AdminBillingService(billing, audit)), this.authenticate),
       new AdminMetaPagesRoutes(
         new AdminMetaPagesController(new AdminMetaPagesService(metaPages, profiles, audit)),
+        this.authenticate,
+      ),
+      new AdminZohoRoutes(new AdminZohoController(new AdminZohoService(billing, profiles, audit)), this.authenticate),
+      new AdminRemindersRoutes(
+        new AdminRemindersController(new AdminRemindersService(reminders, audit, mailer.delivers)),
         this.authenticate,
       ),
       new AdminAuditRoutes(new AdminAuditController(audit), this.authenticate),

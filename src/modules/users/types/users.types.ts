@@ -47,6 +47,10 @@ export interface UsersPort {
   findByEmail(email: string): Promise<UserRecord | null>;
   /** The account holder of a tenant: its oldest admin user (nexon creates the owner first). */
   findOwnerByNdid(ndid: string): Promise<UserRecord | null>;
+  /** Tenants (ndid) whose account holder (oldest admin user) logs in with an email on one of these domains. */
+  ownerNdidsWithEmailDomains(domains: string[]): Promise<string[]>;
+  /** Tenants with any login email containing this text (case-insensitive), at most `limit`. */
+  ndidsByEmail(text: string, limit: number): Promise<string[]>;
   createOwner(input: CreateOwnerInput): Promise<UserRecord>;
   linkGoogleAccount(id: string, googleId: string): Promise<void>;
   /** nexon's password hash (`accesskey`). Only the auth module reads or writes it. */

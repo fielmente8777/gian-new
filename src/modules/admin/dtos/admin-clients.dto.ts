@@ -5,12 +5,17 @@ import type { ProfilePage, ProfileRecord } from "../../profiles/index.js";
 import { CLIENT_SERVICES } from "../../client-services/index.js";
 import { LEAD_SOURCES, type LeadSource } from "../../hotel-notifications/index.js";
 import type { ClientServicesView, ClientView, OpenedAccount } from "../services/admin-clients.service.js";
+import { BULK_CLIENT_ACTIONS } from "../services/admin-bulk-clients.service.js";
 
 const ndid = z.string().trim().min(1).max(64);
 
 export class ClientListQueryDto extends BaseDto {
   static override readonly schema = z.object({
     limit: z.coerce.number().int().min(1).max(100).default(25),
+    kind: z.enum(["clients", "test"]).default("clients").meta({
+      description:
+        "clients = real hotels; test = Eazotel's own test dashboards (owner or hotel email on ADMIN_TEST_EMAIL_DOMAINS)",
+    }),
     after: ndid.optional().meta({ description: "`nextCursor` from the previous page" }),
     search: z
       .string()
@@ -117,6 +122,15 @@ export const clientSchema = z.object({
     .object({ email: z.string(), name: z.string().nullable(), phone: z.string().nullable(), isActive: z.boolean() })
     .nullable()
     .meta({ description: "who holds the hotel's dashboard account" }),
+  trash: z
+    .object({
+      by: z.string(),
+      reason: z.string().nullable(),
+      trashedAt: z.iso.datetime(),
+      pausedSubscription: z.boolean(),
+    })
+    .nullable()
+    .meta({ description: "set while the client is in the trash (hidden from the lists); restore it from the trash" }),
 });
 
 export const openedAccountSchema = z.object({
@@ -225,6 +239,58 @@ export const clientNotificationsSchema = z.object({
   properties: z.array(propertyAlertsSchema).meta({ description: "only the properties this person may see" }),
 });
 
+export class BulkClientsDto extends BaseDto {
+  static override readonly schema = z.object({
+    action: z.enum(BULK_CLIENT_ACTIONS).meta({
+      description:
+        "pause / resume: the subscription (subscriptions.manage). trash: hide the client and pause its time, " +
+        "nothing deleted; restore: bring it back (clients.trash). delete: every record, archived first " +
+        "(clients.delete, super admins only).",
+    }),
+    ndids: z.array(ndid).min(1, "Pick at least one client").max(50, "At most 50 clients at a time"),
+    reason: z
+      .string()
+      .trim()
+      .max(500)
+      .transform((v) => v || null)
+      .nullable()
+      .optional(),
+    confirm: z
+      .string()
+      .trim()
+      .max(40)
+      .nullable()
+      .optional()
+      .meta({ description: "delete only: DELETE followed by the number of clients, e.g. DELETE 3" }),
+  });
+}
+export type BulkClientsBody = z.infer<typeof BulkClientsDto.schema>;
+
+export const bulkResultSchema = z.object({
+  results: z.array(
+    z.object({
+      ndid: z.string(),
+      hotelName: z.string().nullable(),
+      ok: z.boolean(),
+      note: z.string().nullable(),
+      error: z.string().nullable(),
+      message: z.string().nullable(),
+    }),
+  ),
+  done: z.number(),
+  failed: z.number(),
+});
+
+export const trashedClientSchema = z.object({
+  ndid: z.string(),
+  hotelName: z.string().nullable(),
+  by: z.string(),
+  reason: z.string().nullable(),
+  trashedAt: z.iso.datetime(),
+  pausedSubscription: z.boolean(),
+});
+export const trashListSchema = z.object({ items: z.array(trashedClientSchema) });
+
 export class DeleteClientDto extends BaseDto {
   static override readonly schema = z.object({
     confirmName: z.string().trim().min(1, "Type the hotel's name to confirm").max(200),
@@ -260,8 +326,19 @@ export class ClientResponseDto {
     return { items: items.map((profile) => ClientResponseDto.summary(profile)), nextCursor };
   }
 
-  static client({ profile, owner }: ClientView): z.infer<typeof clientSchema> {
-    return { ...profile, owner };
+  static client({ profile, owner, trash }: ClientView): z.infer<typeof clientSchema> {
+    return {
+      ...profile,
+      owner,
+      trash: trash
+        ? {
+            by: trash.by,
+            reason: trash.reason,
+            trashedAt: trash.trashedAt.toISOString(),
+            pausedSubscription: trash.pausedSubscription,
+          }
+        : null,
+    };
   }
 
   static opened({ token, expiresAt, ndid, hid, accountEmail }: OpenedAccount): z.infer<typeof openedAccountSchema> {

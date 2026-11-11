@@ -1,3 +1,4 @@
+import type { AdminTestAccounts, ListKind } from "./admin-test-accounts.js";
 import type { EffectiveServices } from "../../client-services/index.js";
 import {
   SubscriptionRule,
@@ -32,7 +33,9 @@ export interface SubscriptionView {
   emailed?: number;
 }
 
-export type SubscriptionListQuery = Omit<SubscriptionSearch, "ndids">;
+export type SubscriptionListQuery = Omit<SubscriptionSearch, "ndids" | "excludeNdids" | "orNdids"> & {
+  kind?: ListKind;
+};
 
 /** How far to renew: a number of months from today (or from the current end, if later), or an exact date. */
 export type RenewTerm = { months: number } | { until: Date };
@@ -53,6 +56,20 @@ export class AdminSubscriptionsService {
     private readonly subscriptions: SubscriptionsPort,
     private readonly control: ServiceControl,
     private readonly audit: AdminAuditService,
+    /** clients in the trash, left out of the list */
+    private readonly hidden: () => Promise<string[]> = async () => [],
+    /** real clients vs Eazotel's test dashboards; none known = everything is a client */
+    private readonly testAccounts: Pick<AdminTestAccounts, "filter" | "searchByEmail"> = {
+      searchByEmail: async () => [],
+      filter: async (kind, scope, hidden) =>
+        kind === "test"
+          ? { ndids: [], empty: true }
+          : {
+              ...(scope ? { ndids: [...scope.keys()] } : {}),
+              ...(hidden.length ? { excludeNdids: hidden } : {}),
+              empty: false,
+            },
+    },
     private readonly now: () => Date = () => new Date(),
   ) {}
 
@@ -64,7 +81,16 @@ export class AdminSubscriptionsService {
     const scope = AdminPermissions.propertyScope(admin);
     if (scope?.size === 0)
       return { items: [], total: 0, counts: { all: 0, active: 0, ending: 0, ended: 0, stopped: 0 } };
-    return this.subscriptions.list({ ...query, ...(scope ? { ndids: [...scope.keys()] } : {}) });
+    const { kind = "clients", ...search } = query;
+    const filter = await this.testAccounts.filter(kind, scope, await this.hidden());
+    if (filter.empty) return { items: [], total: 0, counts: { all: 0, active: 0, ending: 0, ended: 0, stopped: 0 } };
+    const byEmail = await this.testAccounts.searchByEmail(search.search);
+    return this.subscriptions.list({
+      ...search,
+      ...(byEmail.length ? { orNdids: byEmail } : {}),
+      ...(filter.ndids ? { ndids: filter.ndids } : {}),
+      ...(filter.excludeNdids ? { excludeNdids: filter.excludeNdids } : {}),
+    });
   }
 
   async get(admin: AdminRecord, ndid: string): Promise<SubscriptionView> {

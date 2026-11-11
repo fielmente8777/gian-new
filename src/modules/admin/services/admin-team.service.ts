@@ -2,6 +2,7 @@ import type { RefreshTokenService } from "../../auth/index.js";
 import {
   CannotChangeOwnAccessError,
   SuperAdminMinimumError,
+  TeamMemberDisabledError,
   TeamMemberExistsError,
   TeamMemberNotFoundError,
 } from "../errors/admin.errors.js";
@@ -14,6 +15,7 @@ import type {
   TeamMemberChanges,
 } from "../types/admin.types.js";
 import type { AdminAuditService } from "./admin-audit.service.js";
+import type { AdminInviteMailer } from "./admin-invite.mailer.js";
 
 const MINIMUM_SUPER_ADMINS = 2;
 
@@ -34,13 +36,15 @@ export class AdminTeamService {
     private readonly admins: AdminUserStore,
     private readonly audit: AdminAuditService,
     private readonly refreshTokens: Pick<RefreshTokenService, "revokeAllForUser">,
+    private readonly invites: Pick<AdminInviteMailer, "send">,
   ) {}
 
   list(): Promise<AdminRecord[]> {
     return this.admins.list();
   }
 
-  async add(input: NewTeamMember, { actor, ip }: TeamAction): Promise<AdminRecord> {
+  /** Adds them and emails the invite. A failed email keeps the member: `inviteSent` says so. */
+  async add(input: NewTeamMember, { actor, ip }: TeamAction): Promise<{ member: AdminRecord; inviteSent: boolean }> {
     const member = await this.admins.create(AdminTeamService.normalize(input));
     if (!member) throw new TeamMemberExistsError();
 
@@ -50,7 +54,21 @@ export class AdminTeamService {
       details: { role: member.role },
       ip,
     });
-    return member;
+    return { member, inviteSent: await this.invite(member, actor, ip) };
+  }
+
+  /** Sends the invite email again, e.g. when the first one was lost or went to spam. */
+  async resendInvite(id: string, { actor, ip }: TeamAction): Promise<{ member: AdminRecord; inviteSent: boolean }> {
+    const member = await this.admins.findById(id);
+    if (!member) throw new TeamMemberNotFoundError();
+    if (member.status !== "active") throw new TeamMemberDisabledError();
+    return { member, inviteSent: await this.invite(member, actor, ip) };
+  }
+
+  private async invite(member: AdminRecord, actor: AdminRecord, ip?: string): Promise<boolean> {
+    const sent = await this.invites.send(member, actor);
+    if (sent) await this.audit.record({ action: "team.invite_sent", ...AdminTeamService.parties(actor, member), ip });
+    return sent;
   }
 
   async update(id: string, requested: TeamMemberChanges, { actor, ip }: TeamAction): Promise<AdminRecord> {

@@ -21,6 +21,14 @@ export class UsersService implements UsersPort {
     return doc ? UserMapper.toRecord(doc) : null;
   }
 
+  ownerNdidsWithEmailDomains(domains: string[]): Promise<string[]> {
+    return domains.length ? this.users.ownerNdidsWithEmailDomains(domains) : Promise.resolve([]);
+  }
+
+  ndidsByEmail(text: string, limit: number): Promise<string[]> {
+    return text.trim().length >= 3 ? this.users.ndidsByEmail(text.trim(), limit) : Promise.resolve([]);
+  }
+
   async findOwnerByNdid(ndid: string): Promise<UserRecord | null> {
     const doc = ndid.trim() ? await this.users.findOldestAdminOfTenant(ndid.trim()) : null;
     return doc ? UserMapper.toRecord(doc) : null;

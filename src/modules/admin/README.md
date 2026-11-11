@@ -200,6 +200,24 @@ Built on the `meta-pages` module (`../meta-pages/README.md`) over gian's `pageco
 | `DELETE /admin/meta-pages/:pageId/link` | Unlinks it everywhere: new leads reach no client. Logged `meta_page.unlinked` |
 | `POST /admin/meta-pages/connections/:connectionId/sync` | Fetches the sign-in's pages from Meta again with its saved token, keeps links, subscribes lead webhooks. Logged `meta_pages.synced` |
 
+## Bulk actions and the trash (2026-11-11)
+
+`POST /admin/clients/bulk` runs pause, resume, trash, restore or delete on up to 50 clients, one after the other, through the same services (scope checks, audit entries) as each client page; every client gets its own line in the answer. Permissions: pause/resume need subscriptions.manage, trash/restore the new advanced permission clients.trash, delete stays clients.delete (super admins only) and needs `confirm: "DELETE <count>"`.
+
+The **trash** is a temporary delete (`client_trash`, client-archive module): the client disappears from the client and subscription lists, its subscription is paused (services stop, no day lost), nothing is deleted. Its page still opens and says so. Restore removes it from the trash and resumes the pause the trash made (a stop staff set separately stays). `GET /admin/clients/trash` lists it. Delete forever is the archive-then-delete below.
+
+## Team invites (2026-11-11)
+
+Adding a staff member emails them the console link (`ADMIN_CONSOLE_URL`/login) and how to sign in (Google with that address, then the emailed code). The invite carries no code or token. A failed email keeps the member (`inviteSent: false`); `POST /admin/team/:id/invite` sends it again. Logged as team.invite_sent.
+
+## Renewal reminders and Zoho Books (2026-11-11)
+
+`/admin/reminders` (see src/modules/renewal-reminders/README.md) and `/admin/zoho` (see the Zoho Books section of src/modules/billing/README.md). Zoho: billing.view sees status and invoices; billing.manage connects, switches where hotels pay (audit billing.payment_provider_changed), links Zoho customers to clients (suggestions: same email, or the same name without words like Hotel / Resort / Pvt Ltd), applies or sets aside Zoho-made invoices, and makes Zoho invoices for a client.
+
+## Test accounts (2026-11-11)
+
+Dashboards the team makes for testing are kept out of the client and subscription lists. Only the account holder's login email counts (the oldest admin in Zucks_users, the same owner as everywhere else) on `ADMIN_TEST_EMAIL_DOMAINS` (default `eazotel.com,fielmente.com`). A real hotel with an Eazotel team member, or an Eazotel address as its hotel or marketing email, stays a client. `GET /admin/clients?kind=test` and `GET /admin/subscriptions?kind=test` list only test accounts (the console's Test tab); `kind=clients` (default) leaves them out. Read at most once a minute. Both lists' search also matches any login email of an account (3+ characters).
+
 ## Status and next steps (keep this updated)
 
 **Built, tested, not committed or deployed yet (2026-11-06):** login (Google + emailed code), team, activity log, clients (list, view, edit, scope by assigned properties), open account, service switches (chatbot, leads) with held leads, lead alerts per property, subscriptions (pause, resume, renew, expire, change plan), add-on apps, client deletion with archive, billing (plans, apps, cycles, offers, payments, revenue). `npm test` in gian-new: 185 tests, all passing (incl. invoices).

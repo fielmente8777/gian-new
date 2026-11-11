@@ -81,8 +81,12 @@ export interface SubscriptionSearch {
   state?: SubscriptionState;
   /** only these clients; undefined = all */
   ndids?: string[];
+  /** never these clients (the ones in the admin console's trash) */
+  excludeNdids?: string[];
   /** part of the hotel name, or an exact ndid */
   search?: string;
+  /** with `search`: these clients match too (e.g. their login email matched) */
+  orNdids?: string[];
 }
 
 /** How many subscriptions are in each state (search and scope applied, state filter not). */
@@ -106,6 +110,8 @@ export interface SubscriptionsPort {
   setApps(ndid: string, apps: AppAssignment[], now: Date): Promise<SubscriptionRecord | null>;
   list(search: SubscriptionSearch): Promise<SubscriptionPage>;
   findByNdid(ndid: string): Promise<SubscriptionRecord | null>;
+  /** Subscriptions whose end date is in [from, to), with hotel name and plan, at most `limit` (renewal reminders). */
+  endingBetween(from: Date, to: Date, limit: number): Promise<SubscriptionRecord[]>;
   /** endDate → now, keeps the time that was left. Null when there is no subscription. */
   pause(
     ndid: string,

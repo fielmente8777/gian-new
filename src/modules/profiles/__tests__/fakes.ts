@@ -37,16 +37,18 @@ export class InMemoryProfiles implements ProfilesPort {
     return record;
   }
 
-  async list({ limit, after, search, ndids }: ProfileSearch) {
+  async list({ limit, after, search, ndids, excludeNdids, orNdids }: ProfileSearch) {
     const needle = search?.toLowerCase();
     const matching = [...this.rows.values()]
       .sort((a, b) => a.ndid.localeCompare(b.ndid))
       .filter((r) => !ndids || ndids.includes(r.ndid))
+      .filter((r) => !excludeNdids?.includes(r.ndid))
       .filter((r) => !after || r.ndid > after)
       .filter(
         (r) =>
           !needle ||
           r.ndid === search ||
+          Boolean(orNdids?.includes(r.ndid)) ||
           [r.hotelName, r.domain, r.hotelEmail].some((v) => v?.toLowerCase().includes(needle)),
       );
     const items = matching.slice(0, limit);

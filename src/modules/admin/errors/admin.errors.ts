@@ -96,6 +96,23 @@ export class DeleteConfirmationError extends BadRequestError {
   }
 }
 
+export class BulkConfirmationError extends BadRequestError {
+  constructor(count: number) {
+    super(
+      `Type DELETE ${count} to confirm deleting ${count === 1 ? "this client" : `these ${count} clients`} forever`,
+      {
+        code: "CONFIRMATION_MISMATCH",
+      },
+    );
+  }
+}
+
+export class ClientNotInTrashError extends ConflictError {
+  constructor() {
+    super("This client is not in the trash", { code: "CLIENT_NOT_IN_TRASH" });
+  }
+}
+
 export class TeamMemberNotFoundError extends NotFoundError {
   constructor() {
     super("This staff member does not exist", { code: "TEAM_MEMBER_NOT_FOUND" });
@@ -105,6 +122,12 @@ export class TeamMemberNotFoundError extends NotFoundError {
 export class TeamMemberExistsError extends ConflictError {
   constructor() {
     super("This email is already on the team", { code: "TEAM_MEMBER_EXISTS" });
+  }
+}
+
+export class TeamMemberDisabledError extends ConflictError {
+  constructor() {
+    super("This staff member is turned off. Turn them on before sending an invite.", { code: "TEAM_MEMBER_DISABLED" });
   }
 }
 

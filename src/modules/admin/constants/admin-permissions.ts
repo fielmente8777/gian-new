@@ -15,6 +15,8 @@ export const ADMIN_ADVANCED_PERMISSIONS = [
   "billing.manage",
   // every Facebook page from the Meta sign-ins, and which client gets each page's leads
   "meta_pages.manage",
+  // move clients to the trash (hidden, subscription paused, nothing deleted) and restore them
+  "clients.trash",
 ] as const;
 
 export const ADMIN_SUPER_PERMISSIONS = ["team.manage", "audit.view", "clients.delete"] as const;

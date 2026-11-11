@@ -2,6 +2,7 @@ import { BaseRoutes } from "../../../shared/http/base-routes.js";
 import type { AdminTeamController } from "../controllers/admin-team.controller.js";
 import {
   AddTeamMemberDto,
+  invitedMemberSchema,
   teamListSchema,
   teamMemberSchema,
   TeamMemberParamsDto,
@@ -20,13 +21,27 @@ export class AdminTeamRoutes extends BaseRoutes {
       "/",
       {
         summary: "Add a staff member",
-        description: "They can sign in with Google straight away. Nobody can sign up without this step.",
+        description:
+          "They can sign in with Google straight away, and get an invite email with the console's link and how to " +
+          "sign in. Nobody can sign up without this step. `inviteSent` false: the email failed; resend it.",
         body: AddTeamMemberDto,
-        response: { status: 201, schema: teamMemberSchema },
+        response: { status: 201, schema: invitedMemberSchema },
         errors: { 409: "TEAM_MEMBER_EXISTS" },
       },
       manage,
       c.add,
+    );
+    this.post(
+      "/:id/invite",
+      {
+        summary: "Email the invite again",
+        description: "Same email as when they were added. Logged as team.invite_sent.",
+        params: TeamMemberParamsDto,
+        response: { schema: invitedMemberSchema },
+        errors: { 404: "TEAM_MEMBER_NOT_FOUND", 409: "TEAM_MEMBER_DISABLED" },
+      },
+      manage,
+      c.resendInvite,
     );
     this.patch(
       "/:id",

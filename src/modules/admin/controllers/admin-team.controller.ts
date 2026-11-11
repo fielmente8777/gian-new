@@ -21,8 +21,14 @@ export class AdminTeamController extends BaseController {
   }
 
   async add(req: Request, res: Response): Promise<void> {
-    const member = await this.team.add(req.body as AddTeamMemberBody, AdminTeamController.action(req));
-    this.created(res, TeamResponseDto.member(member));
+    const { member, inviteSent } = await this.team.add(req.body as AddTeamMemberBody, AdminTeamController.action(req));
+    this.created(res, { ...TeamResponseDto.member(member), inviteSent });
+  }
+
+  async resendInvite(req: Request, res: Response): Promise<void> {
+    const { id } = req.validated?.params as TeamMemberParams;
+    const { member, inviteSent } = await this.team.resendInvite(id, AdminTeamController.action(req));
+    this.ok(res, { ...TeamResponseDto.member(member), inviteSent });
   }
 
   async update(req: Request, res: Response): Promise<void> {

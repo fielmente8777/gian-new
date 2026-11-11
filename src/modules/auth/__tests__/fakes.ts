@@ -86,6 +86,25 @@ export class InMemoryUsers implements UsersPort {
     );
   }
 
+  async ndidsByEmail(text: string, limit: number) {
+    const needle = text.toLowerCase();
+    return [
+      ...new Set(
+        [...this.records.values()].filter((u) => u.ndid && u.email.toLowerCase().includes(needle)).map((u) => u.ndid!),
+      ),
+    ].slice(0, limit);
+  }
+
+  /** the owner = the first admin added for the tenant */
+  async ownerNdidsWithEmailDomains(domains: string[]) {
+    const ends = domains.map((d) => `@${d.toLowerCase()}`);
+    const owners = new Map<string, string>();
+    for (const u of this.records.values())
+      if (u.ndid && u.isAdmin && !owners.has(u.ndid)) owners.set(u.ndid, u.email.toLowerCase());
+    return [...owners].filter(([, email]) => ends.some((e) => email.endsWith(e))).map(([ndid]) => ndid);
+  }
+
+
   async findOwnerByNdid(ndid: string) {
     return [...this.records.values()].find((u) => u.ndid === ndid && u.isAdmin) ?? null;
   }

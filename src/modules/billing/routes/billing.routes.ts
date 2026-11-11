@@ -29,6 +29,31 @@ export class BillingRoutes extends BaseRoutes {
     const signedIn = auth.require();
 
     this.get(
+      "/zoho/callback",
+      {
+        summary: "Zoho Books sign-in comes back here",
+        description:
+          "Not for apps: Zoho's sign-in redirects the browser here after a super admin connects Zoho Books from " +
+          "the admin console. Sends it back to the console's Zoho screen with ?zoho=connected (or why it failed).",
+        envelope: false,
+        response: { description: "302 redirect to the admin console" },
+      },
+      c.zohoCallback,
+    );
+    this.post(
+      "/webhooks/zoho",
+      {
+        summary: "Zoho Books webhook (invoice paid)",
+        description:
+          "Set up in Zoho Books → Settings → Automation → Workflow rules (Invoices, when paid) → Webhook: POST to " +
+          'this URL with ?token=<ZOHO_WEBHOOK_TOKEN> and a body holding the invoice id (e.g. {"invoice_id": ' +
+          '"${invoice.invoice_id}"}). The invoice is read back from Zoho\'s API; nothing else in the body is trusted.',
+        errors: { 400: "WEBHOOK_SIGNATURE_INVALID", 503: "ZOHO_NOT_CONFIGURED, ZOHO_NOT_CONNECTED" },
+      },
+      c.zohoWebhook,
+    );
+
+    this.get(
       "/catalogue",
       {
         summary: "Plans, apps, billing cycles and offers (public)",
@@ -72,7 +97,13 @@ export class BillingRoutes extends BaseRoutes {
           "credit) is applied at once (status applied). Account owners only.",
         body: CheckoutDto,
         response: { schema: checkoutSchema },
-        errors: { ...CHOICE_ERRORS, 400: `${CHOICE_ERRORS[400]}, OFFER_INVALID`, 403: "BILLING_OWNER_ONLY", 409: "PRICE_CHANGED", 503: "BILLING_NOT_CONFIGURED" },
+        errors: {
+          ...CHOICE_ERRORS,
+          400: `${CHOICE_ERRORS[400]}, OFFER_INVALID`,
+          403: "BILLING_OWNER_ONLY",
+          409: "PRICE_CHANGED",
+          503: "BILLING_NOT_CONFIGURED",
+        },
       },
       signedIn,
       c.start,

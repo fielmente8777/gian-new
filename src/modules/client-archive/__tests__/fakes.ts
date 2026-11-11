@@ -1,4 +1,4 @@
-import type { ClientArchivePort, DeletionMeta } from "../types/client-archive.types.js";
+import type { ClientArchivePort, ClientTrashPort, DeletionMeta, TrashedClient } from "../types/client-archive.types.js";
 
 /** In-memory client data: records per collection per client. */
 export class InMemoryClientArchive implements ClientArchivePort {
@@ -19,5 +19,34 @@ export class InMemoryClientArchive implements ClientArchivePort {
     this.data.delete(ndid);
     this.deleted.push({ ndid, meta });
     return { ...preview, deletionId: `del-${this.deleted.length}` };
+  }
+}
+
+/** In-memory trash. */
+export class InMemoryClientTrash implements ClientTrashPort {
+  readonly rows = new Map<string, TrashedClient>();
+
+  async add(client: TrashedClient) {
+    if (this.rows.has(client.ndid)) return false;
+    this.rows.set(client.ndid, { ...client });
+    return true;
+  }
+
+  async remove(ndid: string) {
+    const row = this.rows.get(ndid) ?? null;
+    this.rows.delete(ndid);
+    return row;
+  }
+
+  async find(ndid: string) {
+    return this.rows.get(ndid) ?? null;
+  }
+
+  async list() {
+    return [...this.rows.values()].sort((a, b) => b.trashedAt.getTime() - a.trashedAt.getTime());
+  }
+
+  async ndids() {
+    return [...this.rows.keys()];
   }
 }

@@ -12,18 +12,22 @@ import { EventBus } from "../../../shared/events/event-bus.js";
 import { authConfig } from "../../auth/index.js";
 import { FakeGoogle, InMemoryRefreshTokens, InMemoryUsers } from "../../auth/__tests__/fakes.js";
 import { TestBillingPort } from "../../billing/__tests__/fakes.js";
-import { InMemoryClientArchive } from "../../client-archive/__tests__/fakes.js";
+import { InMemoryClientArchive, InMemoryClientTrash } from "../../client-archive/__tests__/fakes.js";
 import { TestServiceControl } from "../../client-services/__tests__/fakes.js";
 import { InMemoryHotelNotifications } from "../../hotel-notifications/__tests__/fakes.js";
 import { TestMetaPages } from "../../meta-pages/__tests__/fakes.js";
 import { InMemoryProfiles } from "../../profiles/__tests__/fakes.js";
 import { InMemorySubscriptions } from "../../subscriptions/__tests__/fakes.js";
+import { TestReminders } from "../../renewal-reminders/__tests__/fakes.js";
 import { AdminModule } from "../admin.module.js";
 import { adminConfig } from "../config/admin.config.js";
 import type { AdminRecord } from "../types/admin.types.js";
 import { FakeClientAccounts, FakeMailbox, InMemoryAdmins, InMemoryAuditLog, InMemoryChallenges } from "./fakes.js";
 
-const privateKey = generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey.export({ type: "pkcs8", format: "pem" });
+const privateKey = generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey.export({
+  type: "pkcs8",
+  format: "pem",
+});
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const json = async (res: Response): Promise<any> => res.json();
 const BILLING = "/api/v1/admin/billing";
@@ -48,9 +52,17 @@ describe("admin billing", () => {
     });
   const signIn = async (admin: AdminRecord) => {
     const post = (path: string, body: unknown) =>
-      fetch(`${base}/api/v1/admin/auth${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-    const { challengeId } = (await json(await post("/google", { idToken: `google:${admin.email}:sub-${admin.email}` }))).data;
-    tokens.set(admin.id, (await json(await post("/otp/verify", { challengeId, code: mailbox.lastCode }))).data.accessToken);
+      fetch(`${base}/api/v1/admin/auth${path}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    const { challengeId } = (await json(await post("/google", { idToken: `google:${admin.email}:sub-${admin.email}` })))
+      .data;
+    tokens.set(
+      admin.id,
+      (await json(await post("/otp/verify", { challengeId, code: mailbox.lastCode }))).data.accessToken,
+    );
   };
 
   before(async () => {
@@ -80,10 +92,18 @@ describe("admin billing", () => {
       serviceControl: TestServiceControl.create(subscriptions).control,
       subscriptions,
       clientArchive: new InMemoryClientArchive(),
+      clientTrash: new InMemoryClientTrash(),
       hotelNotifications: new InMemoryHotelNotifications(),
       billing: billing.port,
       metaPages: TestMetaPages.create().port,
-      overrides: { admins, challenges: new InMemoryChallenges(), auditLog, refreshTokens: new InMemoryRefreshTokens(), google: new FakeGoogle() },
+      reminders: TestReminders.create(subscriptions, mailbox).port,
+      overrides: {
+        admins,
+        challenges: new InMemoryChallenges(),
+        auditLog,
+        refreshTokens: new InMemoryRefreshTokens(),
+        google: new FakeGoogle(),
+      },
     });
     const server = new App({ config: config.app, logger, modules: [admin] }).express.listen(0);
     await new Promise((resolve) => server.once("listening", resolve));
@@ -132,7 +152,11 @@ describe("admin billing", () => {
     const listed = (await json(await call("GET", `${BILLING}/payments`, finance))).data;
     assert.equal(listed.items.find((p: { orderId: string }) => p.orderId === "order_old").invoice, null);
 
-    assert.equal((await call("POST", `${BILLING}/payments/order_old/invoice`, finance)).status, 403, "creating needs billing.manage");
+    assert.equal(
+      (await call("POST", `${BILLING}/payments/order_old/invoice`, finance)).status,
+      403,
+      "creating needs billing.manage",
+    );
     const created = await call("POST", `${BILLING}/payments/order_old/invoice`, boss);
     assert.equal(created.status, 201);
     const invoice = (await json(created)).data;
@@ -142,27 +166,45 @@ describe("admin billing", () => {
     const pdf = await call("GET", `${BILLING}/invoices/${invoice.id}/pdf`, finance);
     assert.equal(pdf.headers.get("content-type"), "application/pdf");
 
-    const sent = (await json(await call("POST", `${BILLING}/invoices/${invoice.id}/email`, finance, { to: ["accounts@hotel.test"] }))).data;
+    const sent = (
+      await json(
+        await call("POST", `${BILLING}/invoices/${invoice.id}/email`, finance, { to: ["accounts@hotel.test"] }),
+      )
+    ).data;
     assert.deepEqual(sent.emailedTo, ["accounts@hotel.test"]);
     assert.equal(billing.mailbox.sent.at(-1)?.to, "accounts@hotel.test");
     assert.equal(billing.mailbox.sent.at(-1)?.attachments?.[0]?.contentType, "application/pdf");
-    assert.ok(auditLog.rows.some((r) => r.action === "billing.invoice_emailed" && r.targetEmail === "accounts@hotel.test"));
+    assert.ok(
+      auditLog.rows.some((r) => r.action === "billing.invoice_emailed" && r.targetEmail === "accounts@hotel.test"),
+    );
     const relisted = (await json(await call("GET", `${BILLING}/payments`, finance))).data;
-    assert.equal(relisted.items.find((p: { orderId: string }) => p.orderId === "order_old").invoice.number, invoice.number);
+    assert.equal(
+      relisted.items.find((p: { orderId: string }) => p.orderId === "order_old").invoice.number,
+      invoice.number,
+    );
   });
 
   it("changes a plan's price and apps, logging old and new values", async () => {
     const pro = billing.catalogueStore.plansList.find((p) => p.code === "PRO")!;
-    const res = await call("PATCH", `${BILLING}/plans/${pro.id}`, boss, { price: 1299, includedApps: ["whatsapp", "exotel"] });
+    const res = await call("PATCH", `${BILLING}/plans/${pro.id}`, boss, {
+      price: 1299,
+      includedApps: ["whatsapp", "exotel"],
+    });
     assert.equal(res.status, 200);
     assert.equal((await json(res)).data.price, 1299);
     const entry = auditLog.rows.find((r) => r.action === "billing.plan_updated")!;
     assert.deepEqual(entry.changes?.price, { from: 999, to: 1299 });
     assert.equal(entry.targetId, "PRO");
 
-    const worded = await call("PATCH", `${BILLING}/plans/${pro.id}`, boss, { customPriceLabel: "Get a quote", customCtaLabel: "Chat with us" });
+    const worded = await call("PATCH", `${BILLING}/plans/${pro.id}`, boss, {
+      customPriceLabel: "Get a quote",
+      customCtaLabel: "Chat with us",
+    });
     assert.equal((await json(worded)).data.customPriceLabel, "Get a quote");
-    assert.equal((await call("PATCH", `${BILLING}/plans/${pro.id}`, boss, { customPriceLabel: "x".repeat(31) })).status, 400);
+    assert.equal(
+      (await call("PATCH", `${BILLING}/plans/${pro.id}`, boss, { customPriceLabel: "x".repeat(31) })).status,
+      400,
+    );
 
     const unknown = await call("PATCH", `${BILLING}/plans/${pro.id}`, boss, { includedApps: ["nope"] });
     assert.equal((await json(unknown)).error.code, "UNKNOWN_APP_CODES");
@@ -189,33 +231,58 @@ describe("admin billing", () => {
     });
     assert.equal((await json(again)).error.code, "PLAN_CODE_TAKEN");
 
-    assert.equal((await call("POST", `${BILLING}/apps`, boss, { code: "channel_manager", name: "Channel Manager", price: 1500 })).status, 201);
+    assert.equal(
+      (await call("POST", `${BILLING}/apps`, boss, { code: "channel_manager", name: "Channel Manager", price: 1500 }))
+        .status,
+      201,
+    );
 
     const badCycles = await call("PUT", `${BILLING}/settings`, boss, {
       gstPercent: 18,
       seatPrice: 500,
       trialDays: 14,
-      cycles: [{ months: 1, label: "Monthly", discountPercent: 0 }, { months: 1, label: "Again", discountPercent: 5 }],
+      cycles: [
+        { months: 1, label: "Monthly", discountPercent: 0 },
+        { months: 1, label: "Again", discountPercent: 5 },
+      ],
     });
     assert.equal(badCycles.status, 400);
     const settings = await call("PUT", `${BILLING}/settings`, boss, {
       gstPercent: 18,
       seatPrice: 600,
       trialDays: 14,
-      cycles: [{ months: 1, label: "Monthly", discountPercent: 0 }, { months: 12, label: "Yearly", discountPercent: 25 }],
+      cycles: [
+        { months: 1, label: "Monthly", discountPercent: 0 },
+        { months: 12, label: "Yearly", discountPercent: 25 },
+      ],
     });
     assert.equal((await json(settings)).data.seatPrice, 600);
 
-    const offer = await call("POST", `${BILLING}/offers`, boss, { code: "diwali25", name: "Diwali", type: "percent", value: 25 });
+    const offer = await call("POST", `${BILLING}/offers`, boss, {
+      code: "diwali25",
+      name: "Diwali",
+      type: "percent",
+      value: 25,
+    });
     assert.equal((await json(offer)).data.code, "DIWALI25");
-    const tooMuch = await call("POST", `${BILLING}/offers`, boss, { code: "HALF", name: "x", type: "percent", value: 150 });
+    const tooMuch = await call("POST", `${BILLING}/offers`, boss, {
+      code: "HALF",
+      name: "x",
+      type: "percent",
+      value: 150,
+    });
     assert.equal(tooMuch.status, 400);
 
     const catalogue = (await json(await call("GET", `${BILLING}/catalogue`, finance))).data;
     assert.ok(catalogue.plans.some((p: { code: string }) => p.code === "ENTERPRISE_AMALTAS"));
     assert.equal(catalogue.offers.length, 1);
     const actions = auditLog.rows.map((r) => r.action);
-    for (const action of ["billing.plan_created", "billing.app_created", "billing.settings_updated", "billing.offer_created"])
+    for (const action of [
+      "billing.plan_created",
+      "billing.app_created",
+      "billing.settings_updated",
+      "billing.offer_created",
+    ])
       assert.ok(actions.includes(action as never), action);
   });
 });

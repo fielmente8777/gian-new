@@ -1,3 +1,4 @@
+import type { AdminTestAccounts, ListKind } from "./admin-test-accounts.js";
 import type { ClientAccountToken } from "../../auth/index.js";
 import type {
   ClientServiceName,
@@ -6,7 +7,13 @@ import type {
   ReleasedLeads,
   ServiceEnforcer,
 } from "../../client-services/index.js";
-import type { ClientArchivePort, DeletionPreview, DeletionResult } from "../../client-archive/index.js";
+import type {
+  ClientArchivePort,
+  DeletionPreview,
+  DeletionResult,
+  ClientTrashPort,
+  TrashedClient,
+} from "../../client-archive/index.js";
 import {
   LEAD_SOURCES,
   type HotelNotificationsPort,
@@ -31,6 +38,8 @@ import { AdminPermissions } from "./admin-permissions.service.js";
 export interface ClientView {
   profile: ProfileRecord;
   owner: { email: string; name: string | null; phone: string | null; isActive: boolean } | null;
+  /** set while the client is in the trash */
+  trash: TrashedClient | null;
 }
 
 /** A short sign-in for the hotel dashboard, as the client. */
@@ -83,6 +92,8 @@ export interface ClientListQuery {
   limit: number;
   after?: string;
   search?: string;
+  /** clients (default) = real hotels; test = Eazotel's own test dashboards */
+  kind?: ListKind;
 }
 
 /**
@@ -102,19 +113,31 @@ export class AdminClientsService {
     private readonly control: ServiceControl,
     private readonly archive: ClientArchivePort,
     private readonly notifications: HotelNotificationsPort,
+    private readonly trash: Pick<ClientTrashPort, "find" | "ndids">,
+    private readonly testAccounts: Pick<AdminTestAccounts, "filter" | "searchByEmail">,
   ) {}
 
   async list(admin: AdminRecord, query: ClientListQuery): Promise<ProfilePage> {
     const scope = AdminPermissions.propertyScope(admin);
     if (scope?.size === 0) return { items: [], nextCursor: null };
-    const page = await this.profiles.list({ ...query, ...(scope ? { ndids: [...scope.keys()] } : {}) });
+    const { kind = "clients", ...search } = query;
+    const filter = await this.testAccounts.filter(kind, scope, await this.trash.ndids());
+    if (filter.empty) return { items: [], nextCursor: null };
+    const byEmail = await this.testAccounts.searchByEmail(search.search);
+    const page = await this.profiles.list({
+      ...search,
+      ...(byEmail.length ? { orNdids: byEmail } : {}),
+      ...(filter.ndids ? { ndids: filter.ndids } : {}),
+      ...(filter.excludeNdids ? { excludeNdids: filter.excludeNdids } : {}),
+    });
     return { ...page, items: page.items.map((profile) => AdminClientsService.limitTo(profile, scope)) };
   }
 
   async get(admin: AdminRecord, ndid: string): Promise<ClientView> {
     const profile = await this.findVisible(admin, ndid);
-    const owner = await this.users.findOwnerByNdid(profile.ndid);
+    const [owner, trash] = await Promise.all([this.users.findOwnerByNdid(profile.ndid), this.trash.find(profile.ndid)]);
     return {
+      trash,
       profile,
       owner: owner
         ? {

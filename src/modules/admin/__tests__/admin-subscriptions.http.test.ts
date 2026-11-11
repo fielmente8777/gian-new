@@ -15,13 +15,14 @@ import { TestServiceControl } from "../../client-services/__tests__/fakes.js";
 import { InMemoryProfiles } from "../../profiles/__tests__/fakes.js";
 import { APPS, InMemorySubscriptions, PLANS } from "../../subscriptions/__tests__/fakes.js";
 import { TestBillingPort } from "../../billing/__tests__/fakes.js";
+import { TestReminders } from "../../renewal-reminders/__tests__/fakes.js";
 import { AdminModule } from "../admin.module.js";
 import { adminConfig } from "../config/admin.config.js";
 import { AdminSubscriptionsService } from "../services/admin-subscriptions.service.js";
 import type { AdminRecord } from "../types/admin.types.js";
 import { InMemoryHotelNotifications } from "../../hotel-notifications/__tests__/fakes.js";
 import { TestMetaPages } from "../../meta-pages/__tests__/fakes.js";
-import { InMemoryClientArchive } from "../../client-archive/__tests__/fakes.js";
+import { InMemoryClientArchive, InMemoryClientTrash } from "../../client-archive/__tests__/fakes.js";
 import { FakeClientAccounts, FakeMailbox, InMemoryAdmins, InMemoryAuditLog, InMemoryChallenges } from "./fakes.js";
 
 // The real App, AdminModule and ServiceEnforcer over HTTP, with in-memory stores.
@@ -95,15 +96,18 @@ describe("admin subscriptions", () => {
       serviceControl: control,
       subscriptions,
       clientArchive: new InMemoryClientArchive(),
+      clientTrash: new InMemoryClientTrash(),
       hotelNotifications: new InMemoryHotelNotifications(),
       billing: TestBillingPort.create().port,
       metaPages: TestMetaPages.create().port,
+      reminders: TestReminders.create(subscriptions, mailbox).port,
       overrides: {
         admins,
         challenges: new InMemoryChallenges(),
         auditLog,
         refreshTokens: new InMemoryRefreshTokens(),
         google: new FakeGoogle(),
+        testAccountsCacheMs: 0,
       },
     });
     const server = new App({ config: config.app, logger, modules: [admin] }).express.listen(0);

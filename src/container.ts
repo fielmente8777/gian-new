@@ -8,6 +8,8 @@ import { ClientArchiveModule } from "./modules/client-archive/index.js";
 import { ClientServicesModule } from "./modules/client-services/index.js";
 import { HotelNotificationsModule } from "./modules/hotel-notifications/index.js";
 import { MetaPagesModule } from "./modules/meta-pages/index.js";
+import { RenewalRemindersModule } from "./modules/renewal-reminders/index.js";
+import { WhatsappCloudClient } from "./integrations/whatsapp/whatsapp-cloud.client.js";
 import { ProfilesModule } from "./modules/profiles/index.js";
 import { SubscriptionsModule } from "./modules/subscriptions/index.js";
 import { UsersModule } from "./modules/users/index.js";
@@ -57,6 +59,10 @@ export class Container {
       logger: this.logger,
       mailer,
       razorpay: config.razorpay,
+      zoho: config.zoho,
+      publicUrl: config.app.PUBLIC_URL,
+      consoleUrl: config.admin.ADMIN_CONSOLE_URL,
+      schedule: config.app.NODE_ENV !== "test",
       auth: auth.authenticate,
       subscriptions: subscriptions.billing,
       // a paid period turns the chatbot and lead alerts back on and releases held leads
@@ -84,6 +90,25 @@ export class Container {
         };
       },
     });
+    const whatsapp = WhatsappCloudClient.fromConfig(config.whatsapp);
+    if (!whatsapp)
+      this.logger.warn("WHATSAPP_PHONE_NUMBER_ID / WHATSAPP_ACCESS_TOKEN not set: reminders go by email only");
+    const reminders = new RenewalRemindersModule({
+      logger: this.logger,
+      mailer,
+      whatsapp,
+      subscriptions: subscriptions.port,
+      schedule: config.app.NODE_ENV !== "test",
+      // the hotel's email and phone, and the account holder's
+      recipients: async (ndid) => {
+        const [profile, owner] = await Promise.all([profiles.port.findByNdid(ndid), users.port.findOwnerByNdid(ndid)]);
+        return {
+          hotelName: profile?.hotelName ?? null,
+          emails: [profile?.hotelEmail, owner?.email].filter((e): e is string => Boolean(e)),
+          phones: [profile?.hotelPhone, owner?.phone].filter((p): p is string => Boolean(p)),
+        };
+      },
+    });
     const admin = new AdminModule({
       config: config.admin,
       authConfig: config.auth,
@@ -96,9 +121,11 @@ export class Container {
       serviceControl: { store: clientServices.port, enforcer: clientServices.enforcer },
       subscriptions: subscriptions.port,
       clientArchive: clientArchive.port,
+      clientTrash: clientArchive.trash,
       hotelNotifications: hotelNotifications.port,
       billing: billing.port,
       metaPages: metaPages.port,
+      reminders: reminders.port,
     });
 
     this.modules = [
@@ -112,6 +139,7 @@ export class Container {
       metaPages,
       auth,
       billing,
+      reminders,
       admin,
     ];
   }

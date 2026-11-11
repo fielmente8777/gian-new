@@ -1,4 +1,5 @@
 import { ObjectIds } from "../../../shared/database/object-id.js";
+import { emailDomainPattern } from "../../../shared/utils/email-domains.js";
 import { UserModel, type UserDocument } from "../models/user.model.js";
 
 /** All Zucks_users queries. Writes use $set on named fields only, never a full-document save. */
@@ -16,6 +17,23 @@ export class UserRepository {
   async findByEmailIgnoringCase(email: string): Promise<UserDocument | null> {
     const pattern = new RegExp(`^${email.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i");
     return UserModel.findOne({ emailId: pattern }).sort({ _id: 1 }).lean<UserDocument>().exec();
+  }
+
+  /** The owner is the oldest admin of the tenant, as in findOldestAdminOfTenant; team members never count. */
+  async ownerNdidsWithEmailDomains(domains: string[]): Promise<string[]> {
+    const rows = await UserModel.aggregate<{ _id: unknown }>([
+      { $match: { ndid: { $type: "string", $ne: "" }, isAdmin: { $in: [true, "true", "True"] } } },
+      { $sort: { _id: 1 } },
+      { $group: { _id: "$ndid", email: { $first: "$emailId" } } },
+      { $match: { email: emailDomainPattern(domains) } },
+    ]).exec();
+    return rows.map((r) => r._id).filter((n): n is string => typeof n === "string");
+  }
+
+  async ndidsByEmail(text: string, limit: number): Promise<string[]> {
+    const pattern = new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+    const ndids: unknown[] = await UserModel.distinct("ndid", { emailId: pattern }).exec();
+    return ndids.filter((n): n is string => typeof n === "string" && n.trim() !== "").slice(0, limit);
   }
 
   async findOldestAdminOfTenant(ndid: string): Promise<UserDocument | null> {

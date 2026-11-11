@@ -15,12 +15,13 @@ import { TestServiceControl } from "../../client-services/__tests__/fakes.js";
 import { InMemorySubscriptions } from "../../subscriptions/__tests__/fakes.js";
 import { InMemoryProfiles } from "../../profiles/__tests__/fakes.js";
 import { TestBillingPort } from "../../billing/__tests__/fakes.js";
+import { TestReminders } from "../../renewal-reminders/__tests__/fakes.js";
 import { AdminModule } from "../admin.module.js";
 import { adminConfig } from "../config/admin.config.js";
 import type { AdminRecord } from "../types/admin.types.js";
 import { InMemoryHotelNotifications } from "../../hotel-notifications/__tests__/fakes.js";
 import { TestMetaPages } from "../../meta-pages/__tests__/fakes.js";
-import { InMemoryClientArchive } from "../../client-archive/__tests__/fakes.js";
+import { InMemoryClientArchive, InMemoryClientTrash } from "../../client-archive/__tests__/fakes.js";
 import { FakeClientAccounts, FakeMailbox, InMemoryAdmins, InMemoryAuditLog, InMemoryChallenges } from "./fakes.js";
 
 // The real App and AdminModule over HTTP, with in-memory admins, profiles and hotel accounts.
@@ -48,6 +49,7 @@ describe("admin clients", () => {
   const clientAccounts = new FakeClientAccounts();
   const subscriptions = new InMemorySubscriptions();
   const clientArchive = new InMemoryClientArchive();
+  const clientTrash = new InMemoryClientTrash();
   const hotelNotifications = new InMemoryHotelNotifications();
   const { store: clientServices, mailbox: digests, control: serviceControl } = TestServiceControl.create(subscriptions);
   const mailbox = new FakeMailbox();
@@ -95,15 +97,18 @@ describe("admin clients", () => {
       subscriptions,
       clientAccounts,
       clientArchive,
+      clientTrash,
       hotelNotifications,
       billing: TestBillingPort.create().port,
       metaPages: TestMetaPages.create().port,
+      reminders: TestReminders.create(subscriptions, mailbox).port,
       overrides: {
         admins,
         challenges: new InMemoryChallenges(),
         auditLog,
         refreshTokens: new InMemoryRefreshTokens(),
         google: new FakeGoogle(),
+        testAccountsCacheMs: 0,
       },
     });
     const server = new App({ config: config.app, logger, modules: [admin] }).express.listen(0);
@@ -515,6 +520,165 @@ describe("admin clients", () => {
       assert.equal((await call("PATCH", `${CLIENTS}/aaa`, boss, { hotelEmail: "not-an-email" })).status, 400);
       assert.equal((await call("PATCH", `${CLIENTS}/aaa`, boss, {})).status, 400);
       assert.equal((await profiles.findByNdid("aaa"))?.hotelName, "Amaltas Resort");
+    });
+  });
+
+  describe("bulk actions and the trash", () => {
+    const BULK = `${CLIENTS}/bulk`;
+    beforeEach(() => {
+      clientTrash.rows.clear();
+      subscriptions.rows.clear();
+      clientArchive.data.clear();
+      clientArchive.deleted.length = 0;
+      subscriptions.add("aaa", "Amaltas Resort", 20);
+      subscriptions.add("bbb", "Midori Hotel", 5);
+    });
+
+    it("moving to the trash hides the client, pauses its time and deletes nothing; restore undoes it", async () => {
+      const res = await call("POST", BULK, boss, {
+        action: "trash",
+        ndids: ["aaa", "ccc"],
+        reason: "Duplicate account",
+      });
+      assert.equal(res.status, 200);
+      const { data } = await json(res);
+      assert.equal(data.done, 2, "a client without a subscription can go to the trash too");
+      assert.equal(data.failed, 0);
+
+      const listed = (await json(await call("GET", CLIENTS, boss))).data.items.map((c: { ndid: string }) => c.ndid);
+      assert.deepEqual(listed, ["bbb"], "trashed clients are left out of the list");
+      assert.equal((await subscriptions.findByNdid("aaa"))?.staffStop?.kind, "paused", "its paid time is paused");
+      assert.equal(clientArchive.deleted.length, 0, "nothing is deleted");
+
+      const page = (await json(await call("GET", `${CLIENTS}/aaa`, boss))).data;
+      assert.equal(page.trash.reason, "Duplicate account", "the client page still opens, and says it is in the trash");
+      const trash = (await json(await call("GET", `${CLIENTS}/trash`, boss))).data.items;
+      assert.deepEqual(trash.map((t: { ndid: string }) => t.ndid).sort(), ["aaa", "ccc"]);
+      assert.equal(auditLog.rows.filter((r) => r.action === "client.trashed").length, 2);
+
+      const restored = (await json(await call("POST", BULK, boss, { action: "restore", ndids: ["aaa"] }))).data;
+      assert.equal(restored.done, 1);
+      assert.equal((await subscriptions.findByNdid("aaa"))?.staffStop, null, "the pause the trash made is undone");
+      const back = (await json(await call("GET", CLIENTS, boss))).data.items.map((c: { ndid: string }) => c.ndid);
+      assert.deepEqual(back, ["aaa", "bbb"]);
+      assert.ok(auditLog.rows.some((r) => r.action === "client.restored" && r.targetId === "aaa"));
+    });
+
+    it("pauses several at once, and reports each client on its own line", async () => {
+      const { data } = await json(await call("POST", BULK, boss, { action: "pause", ndids: ["aaa", "bbb", "ccc"] }));
+      assert.equal(data.done, 2);
+      assert.equal(data.failed, 1);
+      const ccc = data.results.find((r: { ndid: string }) => r.ndid === "ccc");
+      assert.equal(ccc.error, "SUBSCRIPTION_NOT_FOUND", "one failure doesn't stop the others");
+      assert.equal((await subscriptions.findByNdid("bbb"))?.staffStop?.kind, "paused");
+
+      const resumed = (await json(await call("POST", BULK, boss, { action: "resume", ndids: ["aaa", "bbb"] }))).data;
+      assert.equal(resumed.done, 2);
+      assert.equal((await subscriptions.findByNdid("aaa"))?.staffStop, null);
+    });
+
+    it("deleting forever needs DELETE and the count typed, and archives each client first", async () => {
+      clientArchive.data.set("aaa", { Zucks_profile: 1, ContactUs: 4 });
+      clientArchive.data.set("bbb", { Zucks_profile: 1 });
+      const wrong = await call("POST", BULK, boss, { action: "delete", ndids: ["aaa", "bbb"], confirm: "DELETE 1" });
+      assert.equal(wrong.status, 400);
+      assert.equal((await json(wrong)).error.code, "CONFIRMATION_MISMATCH");
+      assert.equal(clientArchive.deleted.length, 0);
+
+      await call("POST", BULK, boss, { action: "trash", ndids: ["aaa"] });
+      const res = await call("POST", BULK, boss, { action: "delete", ndids: ["aaa", "bbb"], confirm: "delete 2" });
+      assert.equal((await json(res)).data.done, 2);
+      assert.deepEqual(
+        clientArchive.deleted.map((d) => d.ndid),
+        ["aaa", "bbb"],
+      );
+      assert.equal(clientTrash.rows.size, 0, "a deleted client leaves the trash");
+    });
+
+    it("needs the right permission per action, and stays within the person's properties", async () => {
+      for (const action of ["pause", "trash", "delete"]) {
+        const res = await call("POST", BULK, staff, { action, ndids: ["aaa"], confirm: "DELETE 1" });
+        assert.equal(res.status, 403, `${action} needs its own permission`);
+      }
+      assert.equal((await call("GET", `${CLIENTS}/trash`, staff)).status, 403);
+
+      await admins.update(staff.id, { advancedPermissions: ["clients.trash"] });
+      const { data } = await json(await call("POST", BULK, staff, { action: "trash", ndids: ["aaa", "bbb"] }));
+      assert.equal(data.done, 1);
+      assert.equal(data.results.find((r: { ndid: string }) => r.ndid === "bbb").error, "CLIENT_NOT_FOUND");
+      assert.ok(!clientTrash.rows.has("bbb"));
+      const trash = (await json(await call("GET", `${CLIENTS}/trash`, staff))).data.items;
+      assert.deepEqual(
+        trash.map((t: { ndid: string }) => t.ndid),
+        ["aaa"],
+      );
+    });
+
+    it("refuses more than 50 clients at a time", async () => {
+      const ndids = Array.from({ length: 51 }, (_, i) => `n${i}`);
+      assert.equal((await call("POST", BULK, boss, { action: "pause", ndids })).status, 400);
+    });
+  });
+
+  describe("test accounts (Eazotel's own dashboards)", () => {
+    beforeEach(() => {
+      subscriptions.rows.clear();
+      clientTrash.rows.clear();
+      // bbb and ccc are held by Eazotel / Fielmente logins: test accounts
+      users.add({ email: "qa@eazotel.com", ndid: "bbb", displayName: "QA" });
+      users.add({ email: "Demo@Fielmente.com", ndid: "ccc", displayName: "Demo" });
+      // aaa is a real hotel even with an Eazotel team member and an Eazotel hotel email (like Aroha Palms)
+      users.add({ email: "support@eazotel.com", ndid: "aaa", isAdmin: false });
+      users.add({ email: "manager@eazotel.com", ndid: "aaa", isAdmin: true });
+      profiles.rows.get("aaa")!.hotelEmail = "bookings@eazotel.com";
+      subscriptions.add("aaa", "Amaltas Resort", 20);
+      subscriptions.add("bbb", "Midori Hotel", 5);
+      subscriptions.add("ccc", "Corbett The Grand", 9);
+    });
+
+    it("the Clients tab leaves them out and the Test tab shows only them", async () => {
+      const real = (await json(await call("GET", CLIENTS, boss))).data.items.map((c: { ndid: string }) => c.ndid);
+      assert.deepEqual(real, ["aaa"]);
+      const test = (await json(await call("GET", `${CLIENTS}?kind=test`, boss))).data.items.map(
+        (c: { ndid: string }) => c.ndid,
+      );
+      assert.deepEqual(test, ["bbb", "ccc"]);
+    });
+
+    it("the subscriptions list splits the same way", async () => {
+      const real = (await json(await call("GET", "/api/v1/admin/subscriptions", boss))).data.items.map(
+        (s: { ndid: string }) => s.ndid,
+      );
+      assert.deepEqual(real, ["aaa"]);
+      const test = (await json(await call("GET", "/api/v1/admin/subscriptions?kind=test", boss))).data.items
+        .map((s: { ndid: string }) => s.ndid)
+        .sort();
+      assert.deepEqual(test, ["bbb", "ccc"]);
+    });
+
+    it("finds a client by any login email, on both lists", async () => {
+      const found = (await json(await call("GET", `${CLIENTS}?search=owner@amaltas`, boss))).data.items;
+      assert.deepEqual(
+        found.map((c: { ndid: string }) => c.ndid),
+        ["aaa"],
+        "the owner's login, not on the profile",
+      );
+      const subs = (await json(await call("GET", "/api/v1/admin/subscriptions?search=OWNER@AMALTAS.TEST", boss))).data
+        .items;
+      assert.deepEqual(
+        subs.map((s: { ndid: string }) => s.ndid),
+        ["aaa"],
+      );
+      const test = (await json(await call("GET", `${CLIENTS}?kind=test&search=qa@eazotel`, boss))).data.items;
+      assert.deepEqual(
+        test.map((c: { ndid: string }) => c.ndid),
+        ["bbb"],
+      );
+    });
+
+    it("an admin sees only test accounts among their own properties", async () => {
+      const test = (await json(await call("GET", `${CLIENTS}?kind=test`, staff))).data.items;
+      assert.deepEqual(test, [], "staff hold aaa only, which is a real client");
     });
   });
 });

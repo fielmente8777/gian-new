@@ -1,6 +1,9 @@
 import { BaseRoutes } from "../../../shared/http/base-routes.js";
 import type { AdminClientsController } from "../controllers/admin-clients.controller.js";
 import {
+  BulkClientsDto,
+  bulkResultSchema,
+  trashListSchema,
   clientPageSchema,
   ClientListQueryDto,
   ClientParamsDto,
@@ -34,6 +37,32 @@ export class AdminClientsRoutes extends BaseRoutes {
       },
       auth.require("clients.view"),
       c.list,
+    );
+    this.post(
+      "/bulk",
+      {
+        summary: "Pause, resume, move to the trash, restore or delete several clients",
+        description:
+          "Up to 50 at a time, one after the other, each with the same checks and audit entries as on its own " +
+          "page. One failure doesn't stop the rest; every client gets a line in `results`. The trash is a " +
+          "temporary delete: the client is hidden from every list and its subscription is paused (services stop, " +
+          "no day is lost); restore resumes it. delete needs `confirm`: DELETE and the number of clients.",
+        body: BulkClientsDto,
+        response: { schema: bulkResultSchema },
+        errors: { 400: "CONFIRMATION_MISMATCH", 403: "PERMISSION_DENIED" },
+      },
+      auth.require("clients.view"),
+      c.bulk,
+    );
+    this.get(
+      "/trash",
+      {
+        summary: "Clients in the trash",
+        description: "Hidden from every list until restored. Newest first, within the person's properties.",
+        response: { schema: trashListSchema },
+      },
+      auth.require("clients.trash"),
+      c.trash,
     );
     this.get(
       "/:ndid",

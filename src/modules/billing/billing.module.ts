@@ -3,6 +3,8 @@ import type { Router } from "express";
 import type { Mailer } from "../../integrations/mail/mailer.js";
 import type { RazorpayConfig } from "../../integrations/razorpay/razorpay.config.js";
 import { RazorpayClient, type PaymentGateway } from "../../integrations/razorpay/razorpay.client.js";
+import { ZohoBooksClient, type ZohoBooksApi } from "../../integrations/zoho/zoho-books.client.js";
+import type { ZohoConfig } from "../../integrations/zoho/zoho.config.js";
 import type { Logger } from "../../shared/logger/logger.js";
 import type { AppModule } from "../../shared/module/app-module.js";
 import type { AuthenticateMiddleware } from "../auth/index.js";
@@ -22,12 +24,34 @@ import { BillingWebhookService } from "./services/billing-webhook.service.js";
 import { CheckoutService } from "./services/checkout.service.js";
 import { InvoiceService, type HotelLookup } from "./services/invoice.service.js";
 import { PeriodActivator, type AfterActivation } from "./services/period-activator.js";
-import type { BillingDetailsStore, CatalogueStore, InvoiceStore, OfferStore, PaymentStore } from "./types/billing.types.js";
+import { TokenCipher } from "./services/token-cipher.js";
+import { ZohoConnectionService } from "./services/zoho-connection.service.js";
+import { ZohoCustomersService } from "./services/zoho-customers.service.js";
+import { ZohoInvoicingService } from "./services/zoho-invoicing.service.js";
+import { ZohoPoller } from "./services/zoho-poller.js";
+import { ZohoSyncService } from "./services/zoho-sync.service.js";
+import { ZohoRepository } from "./repositories/zoho.repository.js";
+import type { ZohoStore } from "./types/zoho.types.js";
+import type {
+  BillingDetailsStore,
+  CatalogueStore,
+  InvoiceStore,
+  OfferStore,
+  PaymentStore,
+} from "./types/billing.types.js";
 
 export interface BillingModuleDeps {
   logger: Logger;
   mailer: Mailer;
   razorpay: RazorpayConfig;
+  /** Zoho Books; left out (tests, scripts) = not set up */
+  zoho?: ZohoConfig;
+  /** this API's public URL, for Zoho's sign-in callback */
+  publicUrl?: string;
+  /** the admin console's URL: Zoho's sign-in sends staff back there */
+  consoleUrl?: string;
+  /** false in tests and scripts: no 30-minute Zoho check */
+  schedule?: boolean;
   /** the auth module's guard: hotel routes take the dashboard's token */
   auth: AuthenticateMiddleware;
   subscriptions: SubscriptionBillingPort;
@@ -45,15 +69,22 @@ export interface BillingModuleDeps {
     invoices?: InvoiceStore;
     billingDetails?: BillingDetailsStore;
     gateway?: PaymentGateway | null;
+    zohoStore?: ZohoStore;
+    zohoApi?: ZohoBooksApi | null;
+    /** base64 32-byte key for the stored Zoho refresh token */
+    zohoTokenKey?: string;
     now?: () => Date;
   };
 }
 
-/** What the admin module uses: the catalogue to edit and the reports to show. */
+/** What the admin module uses: the catalogue to edit, the reports to show and Zoho Books. */
 export interface BillingPort {
   catalogue: BillingCatalogueService;
   reports: BillingReportsService;
   invoices: InvoiceService;
+  /** staff make Zoho invoices for a client with the same prices as the dashboard */
+  checkout: CheckoutService;
+  zoho: { connection: ZohoConnectionService; customers: ZohoCustomersService; sync: ZohoSyncService };
 }
 
 /**
@@ -65,7 +96,14 @@ export class BillingModule implements AppModule {
   readonly router: Router;
   readonly port: BillingPort;
 
-  private readonly stores: { offers: OfferStore; payments: PaymentStore; invoices: InvoiceStore; details: BillingDetailsStore };
+  private readonly stores: {
+    offers: OfferStore;
+    payments: PaymentStore;
+    invoices: InvoiceStore;
+    details: BillingDetailsStore;
+    zoho: ZohoStore;
+  };
+  private readonly zohoPoller: ZohoPoller | null;
 
   constructor(deps: BillingModuleDeps) {
     const { logger, overrides = {} } = deps;
@@ -76,6 +114,7 @@ export class BillingModule implements AppModule {
       payments: overrides.payments ?? new PaymentRepository(),
       invoices: overrides.invoices ?? new InvoiceRepository(),
       details: overrides.billingDetails ?? new BillingDetailsRepository(),
+      zoho: overrides.zohoStore ?? new ZohoRepository(),
     };
     const gateway = overrides.gateway !== undefined ? overrides.gateway : RazorpayClient.fromConfig(deps.razorpay);
     if (!gateway) logger.warn("RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET not set: online payments are off");
@@ -93,6 +132,46 @@ export class BillingModule implements AppModule {
       now,
     );
     const activator = new PeriodActivator(catalogueStore, deps.subscriptions, deps.afterActivation, logger);
+
+    // Zoho Books: a second way to pay, switched on from the admin console
+    const zohoConfig = deps.zoho;
+    const zohoApi =
+      overrides.zohoApi !== undefined
+        ? overrides.zohoApi
+        : zohoConfig?.ZOHO_CLIENT_ID && zohoConfig.ZOHO_CLIENT_SECRET
+          ? new ZohoBooksClient({
+              clientId: zohoConfig.ZOHO_CLIENT_ID,
+              clientSecret: zohoConfig.ZOHO_CLIENT_SECRET,
+              accountsUrl: zohoConfig.ZOHO_ACCOUNTS_URL,
+              apiUrl: zohoConfig.ZOHO_API_URL,
+            })
+          : null;
+    const tokenKey = overrides.zohoTokenKey ?? zohoConfig?.ZOHO_TOKEN_KEY;
+    const cipher = tokenKey ? new TokenCipher(tokenKey) : null;
+    const publicUrl = (deps.publicUrl ?? "http://localhost:4000").replace(/\/+$/, "");
+    const zohoConnection = new ZohoConnectionService(
+      this.stores.zoho,
+      zohoApi,
+      cipher,
+      `${publicUrl}/api/v1/billing/zoho/callback`,
+      deps.consoleUrl ?? "http://localhost:3000",
+      Boolean(zohoConfig?.ZOHO_WEBHOOK_TOKEN),
+      logger,
+      now,
+    );
+    const zohoInvoicing = new ZohoInvoicingService(
+      zohoConnection,
+      zohoApi,
+      this.stores.zoho,
+      deps.hotel,
+      this.stores.details,
+      logger,
+      now,
+    );
+    const zohoConnected = async () => zohoConnection.configured && (await this.stores.zoho.connection()) !== null;
+    const zohoStore = this.stores.zoho;
+    // Zoho not set up on this server: hotels pay by Razorpay whatever was saved before
+    const provider = async () => (zohoConnection.configured ? zohoConnection.provider() : ("razorpay" as const));
     const checkout = new CheckoutService(
       catalogue,
       this.stores.offers,
@@ -105,6 +184,19 @@ export class BillingModule implements AppModule {
       async (ndid) => (await deps.hotel(ndid)).hotelName,
       logger,
       now,
+      {
+        provider,
+        connected: zohoConnected,
+        invoicing: zohoInvoicing,
+        invoicesFor: async (orderIds) => {
+          const found = new Map<string, { number: string; url: string | null }>();
+          for (const orderId of orderIds.filter((id) => id.startsWith("zinv_") || id.startsWith("zoho_"))) {
+            const invoice = await zohoStore.invoiceByOrder(orderId);
+            if (invoice) found.set(orderId, { number: invoice.number, url: invoice.invoiceUrl });
+          }
+          return found;
+        },
+      },
     );
     const autoRenew = new AutoRenewService(
       catalogue,
@@ -116,11 +208,36 @@ export class BillingModule implements AppModule {
       gateway,
       logger,
       now,
+      provider,
     );
     const webhook = new BillingWebhookService(gateway, checkout, autoRenew, logger);
+    const zohoSync = new ZohoSyncService(
+      this.stores.zoho,
+      zohoConnection,
+      zohoApi,
+      this.stores.payments,
+      (orderId, paid) => checkout.applyPaid(orderId, paid),
+      activator,
+      catalogue,
+      deps.subscriptions,
+      zohoConfig?.ZOHO_WEBHOOK_TOKEN ?? null,
+      logger,
+      now,
+    );
+    const zohoCustomers = new ZohoCustomersService(zohoConnection, zohoApi, this.stores.zoho, zohoInvoicing, now);
+    this.zohoPoller = deps.schedule ? new ZohoPoller(zohoSync, zohoConnected, logger) : null;
 
-    this.port = { catalogue, reports: new BillingReportsService(this.stores.payments, deps.subscriptions, now), invoices };
-    this.router = new BillingRoutes(new BillingController(catalogue, checkout, autoRenew, webhook, invoices), deps.auth).router;
+    this.port = {
+      catalogue,
+      reports: new BillingReportsService(this.stores.payments, deps.subscriptions, now),
+      invoices,
+      checkout,
+      zoho: { connection: zohoConnection, customers: zohoCustomers, sync: zohoSync },
+    };
+    this.router = new BillingRoutes(
+      new BillingController(catalogue, checkout, autoRenew, webhook, invoices, zohoConnection, zohoSync),
+      deps.auth,
+    ).router;
   }
 
   async init(): Promise<void> {
@@ -129,5 +246,11 @@ export class BillingModule implements AppModule {
     if (details instanceof BillingDetailsRepository) await details.ensureIndexes();
     if (offers instanceof OfferRepository) await offers.ensureIndexes();
     if (payments instanceof PaymentRepository) await payments.ensureIndexes();
+    if (this.stores.zoho instanceof ZohoRepository) await this.stores.zoho.ensureIndexes();
+    this.zohoPoller?.start();
+  }
+
+  async shutdown(): Promise<void> {
+    this.zohoPoller?.stop();
   }
 }

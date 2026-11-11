@@ -61,6 +61,12 @@ export const teamMemberSchema = z.object({
   lastLoginAt: z.iso.datetime().nullable(),
 });
 
+export const invitedMemberSchema = teamMemberSchema.extend({
+  inviteSent: z
+    .boolean()
+    .meta({ description: "false when the invite email could not be sent; resend it from the team screen" }),
+});
+
 export const teamListSchema = z.object({ members: z.array(teamMemberSchema) });
 
 export type TeamMember = z.infer<typeof teamMemberSchema>;

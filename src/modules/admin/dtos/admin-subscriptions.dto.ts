@@ -17,6 +17,10 @@ const reason = z
 export class SubscriptionListQueryDto extends BaseDto {
   static override readonly schema = z.object({
     page: z.coerce.number().int().min(1).default(1),
+    kind: z.enum(["clients", "test"]).default("clients").meta({
+      description:
+        "clients = real hotels; test = Eazotel's own test dashboards (owner or hotel email on ADMIN_TEST_EMAIL_DOMAINS)",
+    }),
     pageSize: z.coerce.number().int().min(5).max(100).default(25),
     sort: z.enum(["hotel", "plan", "endDate", "state"]).default("endDate"),
     order: z.enum(["asc", "desc"]).default("asc"),

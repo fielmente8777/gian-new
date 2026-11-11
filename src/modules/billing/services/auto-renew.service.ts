@@ -51,10 +51,15 @@ export class AutoRenewService {
     private readonly gateway: PaymentGateway | null,
     private readonly logger: Logger,
     private readonly now: () => Date = () => new Date(),
+    /** where hotels pay now; auto-renew is Razorpay only */
+    private readonly provider: () => Promise<"razorpay" | "zoho"> = async () => "razorpay",
   ) {}
 
   async enable(actor: BillingActor): Promise<AutoRenewStart> {
     CheckoutService.mustPay(actor);
+    if ((await this.provider()) === "zoho") {
+      throw new AutoRenewUnavailableError("Auto-renew isn't available while payments go through Zoho Books invoices.");
+    }
     if (!this.gateway) throw new BillingNotConfiguredError();
     const now = this.now();
     const [snapshot, plans, apps, settings] = await Promise.all([
@@ -125,7 +130,10 @@ export class AutoRenewService {
   }
 
   /** The browser's result after the hotel authorised the mandate. */
-  async confirm(actor: BillingActor, paid: { subscriptionId: string; paymentId: string; signature: string }): Promise<void> {
+  async confirm(
+    actor: BillingActor,
+    paid: { subscriptionId: string; paymentId: string; signature: string },
+  ): Promise<void> {
     if (!this.gateway) throw new BillingNotConfiguredError();
     const snapshot = await this.subscriptions.snapshot(actor.ndid);
     const renewal = snapshot?.autoRenewal;

@@ -27,14 +27,22 @@ const escapeRegex = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"
  * profiles may carry only one of them.
  */
 export class ProfileRepository {
-  async list({ limit, after, search, ndids }: ProfileSearch): Promise<ProfilePage> {
+  async list({ limit, after, search, ndids, excludeNdids, orNdids }: ProfileSearch): Promise<ProfilePage> {
     const conditions: FilterQuery<ProfileDocument>[] = [];
     if (ndids) conditions.push(ProfileRepository.byNdids(ndids));
+    if (excludeNdids?.length) conditions.push({ ndid: { $nin: excludeNdids } });
     if (after) conditions.push({ ndid: { $gt: after } });
     if (search) {
       const pattern = new RegExp(escapeRegex(search), "i");
       conditions.push({
-        $or: [{ hotelName: pattern }, { domain: pattern }, { hotelEmail: pattern }, { ndid: search }, { uId: search }],
+        $or: [
+          { hotelName: pattern },
+          { domain: pattern },
+          { hotelEmail: pattern },
+          { ndid: search },
+          { uId: search },
+          ...(orNdids?.length ? [{ ndid: { $in: orNdids } }] : []),
+        ],
       });
     }
 

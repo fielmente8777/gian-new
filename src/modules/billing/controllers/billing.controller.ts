@@ -1,3 +1,5 @@
+import type { ZohoConnectionService } from "../services/zoho-connection.service.js";
+import type { ZohoSyncService } from "../services/zoho-sync.service.js";
 import type { Request, Response } from "express";
 
 import { BaseController } from "../../../shared/http/base-controller.js";
@@ -24,6 +26,8 @@ export class BillingController extends BaseController {
     private readonly autoRenew: AutoRenewService,
     private readonly webhook: BillingWebhookService,
     private readonly invoices: InvoiceService,
+    private readonly zohoConnection: ZohoConnectionService,
+    private readonly zohoSync: ZohoSyncService,
   ) {
     super();
   }
@@ -100,6 +104,20 @@ export class BillingController extends BaseController {
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.setHeader("Cache-Control", "private, no-store");
     res.status(200).end(pdf);
+  }
+
+  /** Zoho's sign-in comes back here (no token: the one-time state proves who started it). */
+  async zohoCallback(req: Request, res: Response): Promise<void> {
+    const q = req.query as Record<string, string | undefined>;
+    res.redirect(302, await this.zohoConnection.finishConnect(q.code, q.state, q.error));
+  }
+
+  /** Zoho Books' workflow webhook (invoice paid). Answers 200 once the token is right, so Zoho doesn't retry. */
+  async zohoWebhook(req: Request, res: Response): Promise<void> {
+    const token =
+      (req.query as Record<string, string | undefined>).token ?? req.get("x-zoho-webhook-token") ?? undefined;
+    await this.zohoSync.handleWebhook(token, req.body);
+    res.status(200).json({ ok: true });
   }
 
   /** Razorpay retries anything that isn't 2xx, so a handled event always answers 200. */

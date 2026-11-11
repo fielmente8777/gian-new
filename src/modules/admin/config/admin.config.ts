@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { ConfigSection, type ConfigValue } from "../../../config/config-section.js";
-import { duration, positiveInt } from "../../../config/env.schemas.js";
+import { csv, duration, positiveInt } from "../../../config/env.schemas.js";
 
 const schema = z.object({
   // `aud` of admin tokens. Different from AUTH_JWT_AUDIENCE, so a hotel token never works on
@@ -18,6 +18,10 @@ const schema = z.object({
   ADMIN_OTP_RESEND_SECONDS: positiveInt.default(60),
   // emails per login attempt, counting the first one
   ADMIN_OTP_MAX_SENDS: positiveInt.default(4),
+  // the admin console's address, the sign-in link in team invite emails
+  ADMIN_CONSOLE_URL: z.url().default("http://localhost:3000"),
+  // an account whose holder logs in with an email on these domains is a test dashboard (the console's Test tab)
+  ADMIN_TEST_EMAIL_DOMAINS: csv.default(["eazotel.com", "fielmente.com"]),
 });
 
 export const adminConfig = new ConfigSection("admin", schema);

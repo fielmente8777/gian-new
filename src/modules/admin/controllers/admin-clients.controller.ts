@@ -11,14 +11,35 @@ import {
   type SaveNotificationsBody,
   type SetClientServiceBody,
   type UpdateClientBody,
+  type BulkClientsBody,
 } from "../dtos/admin-clients.dto.js";
 import { AdminAuthenticateMiddleware } from "../middlewares/admin-authenticate.middleware.js";
+import type { AdminBulkClientsService } from "../services/admin-bulk-clients.service.js";
 import type { AdminClientsService } from "../services/admin-clients.service.js";
 
 /** /api/v1/admin/clients/*: the clients screens of the admin console. */
 export class AdminClientsController extends BaseController {
-  constructor(private readonly clients: AdminClientsService) {
+  constructor(
+    private readonly clients: AdminClientsService,
+    private readonly bulkClients: AdminBulkClientsService,
+  ) {
     super();
+  }
+
+  async bulk(req: Request, res: Response): Promise<void> {
+    const body = req.body as BulkClientsBody;
+    this.ok(
+      res,
+      await this.bulkClients.run(
+        AdminAuthenticateMiddleware.of(req),
+        { action: body.action, ndids: body.ndids, reason: body.reason ?? null, confirm: body.confirm ?? null },
+        req.ip,
+      ),
+    );
+  }
+
+  async trash(req: Request, res: Response): Promise<void> {
+    this.ok(res, { items: await this.bulkClients.trashed(AdminAuthenticateMiddleware.of(req)) });
   }
 
   async list(req: Request, res: Response): Promise<void> {

@@ -97,7 +97,17 @@ export class SubscriptionRepository implements SubscriptionsPort {
    * One round trip: the profile's hotel name and the plan are joined, the state is computed in
    * the database, and a $facet returns the counts per state, the total and the requested page.
    */
-  async list({ page, pageSize, sort, order, state, ndids, search }: SubscriptionSearch): Promise<SubscriptionPage> {
+  async list({
+    page,
+    pageSize,
+    sort,
+    order,
+    state,
+    ndids,
+    excludeNdids,
+    search,
+    orNdids,
+  }: SubscriptionSearch): Promise<SubscriptionPage> {
     const now = new Date();
     const endingBy = new Date(now.getTime() + ENDING_SOON_DAYS * DAY_MS);
     const direction = order === "desc" ? -1 : 1;
@@ -110,6 +120,7 @@ export class SubscriptionRepository implements SubscriptionsPort {
         counts: { _id: string; n: number }[];
       }>([
         ...(ndids ? [{ $match: { ndid: { $in: ndids } } }] : []),
+        ...(excludeNdids?.length ? [{ $match: { ndid: { $nin: excludeNdids } } }] : []),
         {
           $lookup: {
             from: "Zucks_profile",
@@ -121,7 +132,17 @@ export class SubscriptionRepository implements SubscriptionsPort {
         },
         { $addFields: { hotelName: { $first: "$profile.hotelName" } } },
         ...(search
-          ? [{ $match: { $or: [{ ndid: search }, { hotelName: new RegExp(escapeRegex(search), "i") }] } }]
+          ? [
+              {
+                $match: {
+                  $or: [
+                    { ndid: search },
+                    { hotelName: new RegExp(escapeRegex(search), "i") },
+                    ...(orNdids?.length ? [{ ndid: { $in: orNdids } }] : []),
+                  ],
+                },
+              },
+            ]
           : []),
         { $lookup: { from: "plans", localField: "planId", foreignField: "_id", as: "plan" } },
         {
@@ -180,33 +201,48 @@ export class SubscriptionRepository implements SubscriptionsPort {
     };
   }
 
-  async findByNdid(ndid: string): Promise<SubscriptionRecord | null> {
-    const [doc] = await this.subscriptions
+  async endingBetween(from: Date, to: Date, limit: number): Promise<SubscriptionRecord[]> {
+    const docs = await this.subscriptions
       .aggregate<SubscriptionDocument>([
-        { $match: { ndid } },
-        { $limit: 1 },
-        {
-          $lookup: {
-            from: "Zucks_profile",
-            localField: "ndid",
-            foreignField: "ndid",
-            as: "profile",
-            pipeline: [{ $project: { hotelName: 1 } }],
-          },
-        },
-        { $lookup: { from: "plans", localField: "planId", foreignField: "_id", as: "plan" } },
-        {
-          $lookup: {
-            from: "apps",
-            localField: "apps.appId",
-            foreignField: "_id",
-            as: "appCatalogue",
-            pipeline: [{ $project: { name: 1, code: 1 } }],
-          },
-        },
+        { $match: { endDate: { $gte: from, $lt: to } } },
+        { $sort: { endDate: 1 } },
+        { $limit: limit },
+        ...this.detailLookups(),
       ])
       .toArray();
+    return docs.map((doc) => this.toRecord(doc));
+  }
+
+  async findByNdid(ndid: string): Promise<SubscriptionRecord | null> {
+    const [doc] = await this.subscriptions
+      .aggregate<SubscriptionDocument>([{ $match: { ndid } }, { $limit: 1 }, ...this.detailLookups()])
+      .toArray();
     return doc ? this.toRecord(doc) : null;
+  }
+
+  /** hotel name, plan and app names, the same for one subscription or many */
+  private detailLookups() {
+    return [
+      {
+        $lookup: {
+          from: "Zucks_profile",
+          localField: "ndid",
+          foreignField: "ndid",
+          as: "profile",
+          pipeline: [{ $project: { hotelName: 1 } }],
+        },
+      },
+      { $lookup: { from: "plans", localField: "planId", foreignField: "_id", as: "plan" } },
+      {
+        $lookup: {
+          from: "apps",
+          localField: "apps.appId",
+          foreignField: "_id",
+          as: "appCatalogue",
+          pipeline: [{ $project: { name: 1, code: 1 } }],
+        },
+      },
+    ];
   }
 
   async pause(

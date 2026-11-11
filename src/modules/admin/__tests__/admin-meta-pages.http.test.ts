@@ -12,12 +12,13 @@ import { EventBus } from "../../../shared/events/event-bus.js";
 import { authConfig } from "../../auth/index.js";
 import { FakeGoogle, InMemoryRefreshTokens, InMemoryUsers } from "../../auth/__tests__/fakes.js";
 import { TestBillingPort } from "../../billing/__tests__/fakes.js";
-import { InMemoryClientArchive } from "../../client-archive/__tests__/fakes.js";
+import { InMemoryClientArchive, InMemoryClientTrash } from "../../client-archive/__tests__/fakes.js";
 import { TestServiceControl } from "../../client-services/__tests__/fakes.js";
 import { InMemoryHotelNotifications } from "../../hotel-notifications/__tests__/fakes.js";
 import { TestMetaPages } from "../../meta-pages/__tests__/fakes.js";
 import { InMemoryProfiles } from "../../profiles/__tests__/fakes.js";
 import { InMemorySubscriptions } from "../../subscriptions/__tests__/fakes.js";
+import { TestReminders } from "../../renewal-reminders/__tests__/fakes.js";
 import { AdminModule } from "../admin.module.js";
 import { adminConfig } from "../config/admin.config.js";
 import type { AdminRecord } from "../types/admin.types.js";
@@ -99,9 +100,11 @@ describe("admin meta pages", () => {
       subscriptions,
       clientAccounts: new FakeClientAccounts(),
       clientArchive: new InMemoryClientArchive(),
+      clientTrash: new InMemoryClientTrash(),
       hotelNotifications: new InMemoryHotelNotifications(),
       billing: TestBillingPort.create().port,
       metaPages: meta.port,
+      reminders: TestReminders.create(subscriptions, mailbox).port,
       overrides: {
         admins,
         challenges: new InMemoryChallenges(),

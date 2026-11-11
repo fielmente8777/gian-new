@@ -43,6 +43,10 @@ export interface ProfileSearch {
   search?: string;
   /** Only these clients. Undefined means every client. */
   ndids?: string[];
+  /** Never these clients (the ones in the admin console's trash). */
+  excludeNdids?: string[];
+  /** with `search`: these clients match too (e.g. their login email matched) */
+  orNdids?: string[];
 }
 
 export interface ProfilePage {

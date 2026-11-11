@@ -1,5 +1,7 @@
 import { mailConfig } from "../integrations/mail/mail.config.js";
 import { razorpayConfig } from "../integrations/razorpay/razorpay.config.js";
+import { whatsappConfig } from "../integrations/whatsapp/whatsapp.config.js";
+import { zohoConfig } from "../integrations/zoho/zoho.config.js";
 import { adminConfig } from "../modules/admin/config/admin.config.js";
 import { clientServicesConfig } from "../modules/client-services/config/client-services.config.js";
 import { authConfig } from "../modules/auth/config/auth.config.js";
@@ -19,6 +21,8 @@ export const configSections = {
   redis: redisConfig,
   mail: mailConfig,
   razorpay: razorpayConfig,
+  whatsapp: whatsappConfig,
+  zoho: zohoConfig,
   auth: authConfig,
   admin: adminConfig,
   clientServices: clientServicesConfig,

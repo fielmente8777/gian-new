@@ -2,6 +2,8 @@
 export { ClientArchiveModule } from "./client-archive.module.js";
 export type {
   ClientArchivePort,
+  ClientTrashPort,
+  TrashedClient,
   CollectionCount,
   DeletionMeta,
   DeletionPreview,

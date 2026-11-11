@@ -12,9 +12,12 @@ import type {
   SubscriptionBillingStats,
 } from "../../subscriptions/index.js";
 import { DEFAULT_BILLING_SETTINGS, DEFAULT_CUSTOM_PRICING } from "../constants/billing.constants.js";
+import type { AuthenticateMiddleware } from "../../auth/index.js";
+import { BillingModule } from "../billing.module.js";
 import { BillingCatalogueService } from "../services/billing-catalogue.service.js";
 import { BillingReportsService } from "../services/billing-reports.service.js";
-import { InvoiceService, type HotelInfo } from "../services/invoice.service.js";
+import type { HotelInfo } from "../services/invoice.service.js";
+import { FakeZohoBooks, InMemoryZohoStore, TEST_ZOHO_KEY, TEST_ZOHO_WEBHOOK_TOKEN } from "./zoho-fakes.js";
 import type {
   AppInput,
   BillingDetails,
@@ -42,11 +45,51 @@ let counter = 0;
 const nextId = () => (++counter).toString(16).padStart(24, "c");
 
 export const CAT_APPS: CatalogueApp[] = [
-  { id: "a00000000000000000000001", code: "lead_management", name: "Lead Management", description: "", price: 500, isActive: true, sortOrder: 1 },
-  { id: "a00000000000000000000002", code: "whatsapp", name: "WhatsApp Chat", description: "", price: 1000, isActive: true, sortOrder: 2 },
-  { id: "a00000000000000000000003", code: "eazbot", name: "Eazbot", description: "", price: 500, isActive: true, sortOrder: 3 },
-  { id: "a00000000000000000000004", code: "exotel", name: "Exotel Integration", description: "", price: 1000, isActive: true, sortOrder: 4 },
-  { id: "a00000000000000000000005", code: "grm", name: "GRM", description: "", price: 500, isActive: false, sortOrder: 5 },
+  {
+    id: "a00000000000000000000001",
+    code: "lead_management",
+    name: "Lead Management",
+    description: "",
+    price: 500,
+    isActive: true,
+    sortOrder: 1,
+  },
+  {
+    id: "a00000000000000000000002",
+    code: "whatsapp",
+    name: "WhatsApp Chat",
+    description: "",
+    price: 1000,
+    isActive: true,
+    sortOrder: 2,
+  },
+  {
+    id: "a00000000000000000000003",
+    code: "eazbot",
+    name: "Eazbot",
+    description: "",
+    price: 500,
+    isActive: true,
+    sortOrder: 3,
+  },
+  {
+    id: "a00000000000000000000004",
+    code: "exotel",
+    name: "Exotel Integration",
+    description: "",
+    price: 1000,
+    isActive: true,
+    sortOrder: 4,
+  },
+  {
+    id: "a00000000000000000000005",
+    code: "grm",
+    name: "GRM",
+    description: "",
+    price: 500,
+    isActive: false,
+    sortOrder: 5,
+  },
 ];
 
 const limits = { teamMembers: 3, properties: 1, aiCreditsMonthly: 100, maxLeadsPerMonth: 200 };
@@ -55,10 +98,18 @@ export const CAT_PLANS: CataloguePlan[] = [
   plan("p00000000000000000000001", "TRIAL", 0, [], { isPublic: false }),
   plan("p00000000000000000000002", "BASIC", 499, ["lead_management"]),
   plan("p00000000000000000000003", "PRO", 999, ["lead_management", "whatsapp", "eazbot"], { featured: true }),
-  plan("p00000000000000000000004", "ENTERPRISE", 0, ["lead_management", "whatsapp", "eazbot", "exotel"], { isCustom: true }),
+  plan("p00000000000000000000004", "ENTERPRISE", 0, ["lead_management", "whatsapp", "eazbot", "exotel"], {
+    isCustom: true,
+  }),
 ];
 
-function plan(id: string, code: string, price: number, includedApps: string[], extra: Partial<CataloguePlan> = {}): CataloguePlan {
+function plan(
+  id: string,
+  code: string,
+  price: number,
+  includedApps: string[],
+  extra: Partial<CataloguePlan> = {},
+): CataloguePlan {
   return {
     id: id.replace(/p/g, "f"),
     code,
@@ -191,7 +242,13 @@ export class InMemoryPayments implements PaymentStore {
   async claim(orderId: string, paid: { paymentId: string; method: string | null; paidAt: Date }, now: Date) {
     const p = this.rows.find((r) => r.orderId === orderId && r.source === "gian-new");
     if (!p || p.appliedAt || (p.claimedAt && now.getTime() - p.claimedAt.getTime() < 120_000)) return null;
-    Object.assign(p, { status: "SUCCESS", paymentId: paid.paymentId, method: paid.method, paidAt: paid.paidAt, claimedAt: now });
+    Object.assign(p, {
+      status: "SUCCESS",
+      paymentId: paid.paymentId,
+      method: paid.method,
+      paidAt: paid.paidAt,
+      claimedAt: now,
+    });
     return { ...p };
   }
   async markApplied(orderId: string, now: Date) {
@@ -200,7 +257,8 @@ export class InMemoryPayments implements PaymentStore {
   }
   async markFailed(orderId: string, reason: string, paymentId: string | null) {
     const p = this.rows.find((r) => r.orderId === orderId);
-    if (p && p.status !== "SUCCESS") Object.assign(p, { status: "FAILED", failureReason: reason, paymentId: paymentId ?? p.paymentId });
+    if (p && p.status !== "SUCCESS")
+      Object.assign(p, { status: "FAILED", failureReason: reason, paymentId: paymentId ?? p.paymentId });
   }
   async insertApplied(p: NewPayment, now: Date) {
     if (this.rows.some((r) => r.orderId === p.orderId)) return false;
@@ -209,15 +267,23 @@ export class InMemoryPayments implements PaymentStore {
   }
   async list(q: PaymentQuery): Promise<PaymentPage> {
     const matching = this.rows
-      .filter((p) => (!q.ndid || p.ndid === q.ndid) && (!q.ndids || q.ndids.includes(p.ndid)) && (!q.status || p.status === q.status))
+      .filter(
+        (p) =>
+          (!q.ndid || p.ndid === q.ndid) &&
+          (!q.ndids || q.ndids.includes(p.ndid)) &&
+          (!q.status || p.status === q.status),
+      )
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
     return {
-      items: matching.slice((q.page - 1) * q.pageSize, q.page * q.pageSize).map((p) => ({ ...p, hotelName: null, planCode: p.terms?.planCode ?? null })),
+      items: matching
+        .slice((q.page - 1) * q.pageSize, q.page * q.pageSize)
+        .map((p) => ({ ...p, hotelName: null, planCode: p.terms?.planCode ?? null })),
       total: matching.length,
     };
   }
   async offerUses(ndid: string, code: string) {
-    return this.rows.filter((p) => p.ndid === ndid && p.offerCode === code.toUpperCase() && p.status === "SUCCESS").length;
+    return this.rows.filter((p) => p.ndid === ndid && p.offerCode === code.toUpperCase() && p.status === "SUCCESS")
+      .length;
   }
   async hasPaid(ndid: string) {
     return this.rows.some((p) => p.ndid === ndid && p.status === "SUCCESS");
@@ -254,7 +320,12 @@ export class InMemorySubscriptionBilling implements SubscriptionBillingPort {
       endDate: new Date(now.getTime() + daysLeft * 86_400_000),
       staffStop: null,
       lastPaymentId: null,
-      apps: CAT_APPS.map((a) => ({ appId: a.id, isTrial: true, startDate: now, endDate: new Date(now.getTime() + daysLeft * 86_400_000) })),
+      apps: CAT_APPS.map((a) => ({
+        appId: a.id,
+        isTrial: true,
+        startDate: now,
+        endDate: new Date(now.getTime() + daysLeft * 86_400_000),
+      })),
       appAccess: Object.fromEntries(CAT_APPS.map((a) => [a.code, true])),
       autoRenew: false,
       billing: null,
@@ -291,13 +362,24 @@ export class InMemorySubscriptionBilling implements SubscriptionBillingPort {
     return [...this.rows.values()].find((r) => r.autoRenewal?.gatewaySubscriptionId === id)?.ndid ?? null;
   }
   async stats(): Promise<SubscriptionBillingStats> {
-    return { total: this.rows.size, paying: 0, trial: 0, ended: 0, stopped: 0, renewalsDue30d: 0, autoRenewOn: 0, byPlan: [], mrrPaise: 0 };
+    return {
+      total: this.rows.size,
+      paying: 0,
+      trial: 0,
+      ended: 0,
+      stopped: 0,
+      renewalsDue30d: 0,
+      autoRenewOn: 0,
+      byPlan: [],
+      mrrPaise: 0,
+    };
   }
 }
 
 export const KEY_SECRET = "test_secret";
 export const WEBHOOK_SECRET = "webhook_secret";
-export const sign = (secret: string, payload: string | Buffer) => createHmac("sha256", secret).update(payload).digest("hex");
+export const sign = (secret: string, payload: string | Buffer) =>
+  createHmac("sha256", secret).update(payload).digest("hex");
 
 /** Razorpay without the network; signatures are real HMACs with the test secrets. */
 export class FakeGateway implements PaymentGateway {
@@ -356,7 +438,13 @@ export class InMemoryInvoices implements InvoiceStore {
     if (existing) return existing;
     const seq = (this.counters.get(yearKey) ?? 0) + 1;
     this.counters.set(yearKey, seq);
-    const record: InvoiceRecord = { ...invoice, id: nextId(), number: numberFor(seq), emailedTo: [], lastEmailedAt: null };
+    const record: InvoiceRecord = {
+      ...invoice,
+      id: nextId(),
+      number: numberFor(seq),
+      emailedTo: [],
+      lastEmailedAt: null,
+    };
     this.rows.push(record);
     return record;
   }
@@ -367,7 +455,9 @@ export class InMemoryInvoices implements InvoiceStore {
     return this.rows.find((r) => r.orderId === orderId) ?? null;
   }
   async numbersFor(orderIds: string[]) {
-    return new Map(this.rows.filter((r) => orderIds.includes(r.orderId)).map((r) => [r.orderId, { id: r.id, number: r.number }]));
+    return new Map(
+      this.rows.filter((r) => orderIds.includes(r.orderId)).map((r) => [r.orderId, { id: r.id, number: r.number }]),
+    );
   }
   async markEmailed(id: string, to: string[], at: Date) {
     const r = this.rows.find((x) => x.id === id);
@@ -404,7 +494,43 @@ export class TestBillingPort {
     const subscriptions = new InMemorySubscriptionBilling();
     const invoiceStore = new InMemoryInvoices();
     const mailbox = new FakeBillingMailbox();
-    const catalogueService = new BillingCatalogueService(catalogue, offers, now);
+    const zohoStore = new InMemoryZohoStore();
+    const zoho = new FakeZohoBooks();
+    const activated: string[] = [];
+    // the real module over in-memory stores and a fake Zoho; routes aren't mounted, so auth is a stand-in
+    const module = new BillingModule({
+      logger: silentLogger,
+      mailer: mailbox,
+      razorpay: {},
+      zoho: {
+        ZOHO_ACCOUNTS_URL: "https://accounts.zoho.test",
+        ZOHO_API_URL: "https://zoho.test",
+        ZOHO_WEBHOOK_TOKEN: TEST_ZOHO_WEBHOOK_TOKEN,
+      },
+      publicUrl: "https://api.eazotel.test",
+      consoleUrl: "https://admin.eazotel.test",
+      auth: {
+        require: () => (_req: unknown, _res: unknown, next: () => void) => next(),
+      } as unknown as AuthenticateMiddleware,
+      subscriptions,
+      afterActivation: async (ndid) => {
+        activated.push(ndid);
+      },
+      recipients: async () => ({ to: ["owner@hotel.test"], hotelName: "Hotel Test" }),
+      hotel: testHotel,
+      overrides: {
+        catalogue,
+        offers,
+        payments,
+        invoices: invoiceStore,
+        billingDetails: new InMemoryBillingDetails(),
+        gateway: null,
+        zohoStore,
+        zohoApi: zoho,
+        zohoTokenKey: TEST_ZOHO_KEY,
+        now,
+      },
+    });
     return {
       catalogueStore: catalogue,
       offers,
@@ -412,11 +538,10 @@ export class TestBillingPort {
       subscriptions,
       invoiceStore,
       mailbox,
-      port: {
-        catalogue: catalogueService,
-        reports: new BillingReportsService(payments, subscriptions, now),
-        invoices: new InvoiceService(invoiceStore, new InMemoryBillingDetails(), catalogueService, payments, testHotel, mailbox, silentLogger, now),
-      },
+      zohoStore,
+      zoho,
+      activated,
+      port: module.port,
     };
   }
 }

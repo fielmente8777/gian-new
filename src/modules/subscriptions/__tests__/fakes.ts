@@ -80,7 +80,14 @@ export class InMemorySubscriptions implements SubscriptionsPort {
     return PLANS.some((p) => p.id === planId);
   }
 
-  async list({ page, pageSize, sort, order, state, ndids, search }: SubscriptionSearch) {
+  async endingBetween(from: Date, to: Date, limit: number) {
+    return [...this.rows.values()]
+      .filter((r) => r.endDate >= from && r.endDate < to)
+      .sort((a, b) => a.endDate.getTime() - b.endDate.getTime())
+      .slice(0, limit);
+  }
+
+  async list({ page, pageSize, sort, order, state, ndids, excludeNdids, search, orNdids }: SubscriptionSearch) {
     const now = Date.now();
     const stateOf = (r: SubscriptionRecord): SubscriptionState =>
       r.staffStop
@@ -101,7 +108,14 @@ export class InMemorySubscriptions implements SubscriptionsPort {
             : r.endDate.getTime();
     const scoped = [...this.rows.values()]
       .filter((r) => !ndids || ndids.includes(r.ndid))
-      .filter((r) => !search || r.ndid === search || (r.hotelName ?? "").toLowerCase().includes(search.toLowerCase()))
+      .filter((r) => !excludeNdids?.includes(r.ndid))
+      .filter(
+        (r) =>
+          !search ||
+          r.ndid === search ||
+          Boolean(orNdids?.includes(r.ndid)) ||
+          (r.hotelName ?? "").toLowerCase().includes(search.toLowerCase()),
+      )
       .map((r) => ({ ...r, state: stateOf(r) }));
     const counts = { all: scoped.length, active: 0, ending: 0, ended: 0, stopped: 0 };
     for (const r of scoped) counts[r.state] += 1;
