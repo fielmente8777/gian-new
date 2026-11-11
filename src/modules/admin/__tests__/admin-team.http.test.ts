@@ -190,7 +190,7 @@ describe("admin team and audit log", () => {
       assert.equal((await json(res)).data.inviteSent, true);
       const mail = mailbox.sent.find((m) => m.to === "invitee@eazotel.com");
       assert.ok(mail, "the invite must go to the new member");
-      assert.match(mail.text, /http:\/\/localhost:3000\/login/);
+      assert.match(mail.text, /Sign in here: https:\/\/admin\.eazotel\.com\/login/);
       assert.match(mail.text, /Boss \(boss@eazotel\.com\)/);
       assert.doesNotMatch(mail.text, /\b\d{6}\b/, "an invite never carries a code or token");
       assert.equal(entries("team.invite_sent").length, 1);

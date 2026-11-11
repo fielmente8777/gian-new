@@ -154,7 +154,7 @@ export class BillingModule implements AppModule {
       zohoApi,
       cipher,
       `${publicUrl}/api/v1/billing/zoho/callback`,
-      deps.consoleUrl ?? "http://localhost:3000",
+      deps.consoleUrl ?? "https://admin.eazotel.com",
       Boolean(zohoConfig?.ZOHO_WEBHOOK_TOKEN),
       logger,
       now,

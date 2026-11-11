@@ -19,7 +19,7 @@ const schema = z.object({
   // emails per login attempt, counting the first one
   ADMIN_OTP_MAX_SENDS: positiveInt.default(4),
   // the admin console's address, the sign-in link in team invite emails
-  ADMIN_CONSOLE_URL: z.url().default("http://localhost:3000"),
+  ADMIN_CONSOLE_URL: z.url().default("https://admin.eazotel.com"),
   // an account whose holder logs in with an email on these domains is a test dashboard (the console's Test tab)
   ADMIN_TEST_EMAIL_DOMAINS: csv.default(["eazotel.com", "fielmente.com"]),
 });
