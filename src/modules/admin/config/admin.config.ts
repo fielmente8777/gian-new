@@ -8,8 +8,9 @@ const schema = z.object({
   // the admin API and an admin token never works on the hotel API.
   ADMIN_JWT_AUDIENCE: z.string().min(1).default("eazotel-admin"),
   ADMIN_ACCESS_TTL: duration.default("15m"),
-  // how long a staff member stays signed in before Google + email code are needed again
-  ADMIN_REFRESH_TTL_DAYS: positiveInt.default(7),
+  // days a staff login lasts WITHOUT being used: every visit moves it forward again (sliding),
+  // so someone who uses the console stays signed in until they log out
+  ADMIN_REFRESH_TTL_DAYS: positiveInt.default(30),
   // a separate cookie, so the hotel dashboard and admin console sessions never mix
   ADMIN_REFRESH_COOKIE_NAME: z.string().min(1).default("ez_admin_rt"),
   ADMIN_OTP_TTL_SECONDS: positiveInt.default(300),

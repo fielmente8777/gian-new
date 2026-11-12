@@ -109,6 +109,25 @@ export class InMemoryUsers implements UsersPort {
     return [...this.records.values()].find((u) => u.ndid === ndid && u.isAdmin) ?? null;
   }
 
+  async listByNdid(ndid: string) {
+    return [...this.records.values()].filter((u) => u.ndid === ndid);
+  }
+
+  async setPhone(id: string, phone: string | null, options: { onlyIfEmpty?: boolean } = {}) {
+    const user = this.records.get(id);
+    if (!user || (options.onlyIfEmpty && user.phone)) return false;
+    const value = phone?.trim() || null;
+    if (user.phone === value) return false;
+    user.phone = value;
+    return true;
+  }
+
+  async ownersWithoutPhone(limit: number) {
+    const owners = new Map<string, UserRecord>();
+    for (const u of this.records.values()) if (u.ndid && u.isAdmin && !owners.has(u.ndid)) owners.set(u.ndid, u);
+    return [...owners.values()].filter((u) => !u.phone).slice(0, limit);
+  }
+
   async createOwner(input: CreateOwnerInput) {
     return this.add(
       {

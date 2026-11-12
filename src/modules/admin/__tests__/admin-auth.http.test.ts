@@ -13,6 +13,7 @@ import { AuthModule, authConfig } from "../../auth/index.js";
 import { FakeGoogle, InMemoryCredentials, InMemoryRefreshTokens, InMemoryUsers } from "../../auth/__tests__/fakes.js";
 import { TestBillingPort } from "../../billing/__tests__/fakes.js";
 import { TestReminders } from "../../renewal-reminders/__tests__/fakes.js";
+import { TestAiCredits } from "../../ai-credits/__tests__/fakes.js";
 import { AdminModule } from "../admin.module.js";
 import { adminConfig } from "../config/admin.config.js";
 import { TestServiceControl } from "../../client-services/__tests__/fakes.js";
@@ -107,6 +108,7 @@ describe("admin login", () => {
       billing: TestBillingPort.create().port,
       metaPages: TestMetaPages.create().port,
       reminders: TestReminders.create(new InMemorySubscriptions(), mailbox).port,
+      aiCredits: TestAiCredits.create().port,
       overrides: { admins, challenges, auditLog: new InMemoryAuditLog(), refreshTokens, google },
     });
     const server = new App({ config: config.app, logger, modules: [auth, admin] }).express.listen(0);
@@ -317,6 +319,34 @@ describe("admin login", () => {
       admins.rows.set(staff.id, { ...current, status: "disabled" });
       assert.equal((await get("/api/v1/admin/auth/me", data.accessToken)).status, 403);
       assert.equal((await post("/api/v1/admin/auth/refresh", {}, { cookie })).status, 403);
+    });
+
+    it("reloading mid-refresh, or two refreshes at once, never signs anyone out", async () => {
+      const rt = (res: Response) =>
+        res.headers
+          .getSetCookie()
+          .find((c) => c.startsWith("ez_admin_rt="))
+          ?.split(";")[0];
+      const { cookie, rawCookie } = await signIn("boss@eazotel.com");
+      assert.match(rawCookie, /Expires=/, "a lasting cookie, not one that dies with the browser");
+
+      // the page reloaded before the browser stored the new cookie: the old one still works
+      assert.equal((await post("/api/v1/admin/auth/refresh", {}, { cookie })).status, 200);
+      const reload = await post("/api/v1/admin/auth/refresh", {}, { cookie });
+      assert.equal(reload.status, 200);
+
+      // two at once with the same cookie: both succeed, and no answer deletes the cookie
+      const current = rt(reload)!;
+      const both = await Promise.all([
+        post("/api/v1/admin/auth/refresh", {}, { cookie: current }),
+        post("/api/v1/admin/auth/refresh", {}, { cookie: current }),
+      ]);
+      for (const res of both) {
+        assert.ok([200, 409].includes(res.status), `got ${res.status}`);
+        if (res.status === 409) assert.equal(rt(res), undefined, "a retry answer keeps the cookie");
+      }
+      const winner = both.find((r) => r.status === 200)!;
+      assert.equal((await post("/api/v1/admin/auth/refresh", {}, { cookie: rt(winner)! })).status, 200);
     });
 
     it("refresh rotates the cookie without a new code; logout ends the session", async () => {

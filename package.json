@@ -17,6 +17,8 @@
     "docs:export": "tsx scripts/export-openapi.ts",
     "admin:create": "tsx scripts/create-admin.ts",
     "billing:seed": "tsx scripts/seed-billing.ts",
+    "ai-credits:seed": "tsx scripts/seed-ai-credits.ts",
+    "owners:backfill-phones": "tsx scripts/backfill-owner-phones.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },

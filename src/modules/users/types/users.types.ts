@@ -51,6 +51,15 @@ export interface UsersPort {
   ownerNdidsWithEmailDomains(domains: string[]): Promise<string[]>;
   /** Tenants with any login email containing this text (case-insensitive), at most `limit`. */
   ndidsByEmail(text: string, limit: number): Promise<string[]>;
+  /** Every user of one tenant, oldest first (the first admin is the account holder). */
+  listByNdid(ndid: string): Promise<UserRecord[]>;
+  /**
+   * Saves a user's phone (null clears it). onlyIfEmpty: only when none is stored, checked in
+   * the same write, so an existing number is never replaced. True when it changed.
+   */
+  setPhone(id: string, phone: string | null, options?: { onlyIfEmpty?: boolean }): Promise<boolean>;
+  /** Account holders (oldest admin of each tenant) with no phone stored, at most `limit`. */
+  ownersWithoutPhone(limit: number): Promise<UserRecord[]>;
   createOwner(input: CreateOwnerInput): Promise<UserRecord>;
   linkGoogleAccount(id: string, googleId: string): Promise<void>;
   /** nexon's password hash (`accesskey`). Only the auth module reads or writes it. */

@@ -19,6 +19,7 @@ import { TestMetaPages } from "../../meta-pages/__tests__/fakes.js";
 import { InMemoryProfiles } from "../../profiles/__tests__/fakes.js";
 import { InMemorySubscriptions } from "../../subscriptions/__tests__/fakes.js";
 import { TestReminders } from "../../renewal-reminders/__tests__/fakes.js";
+import { TestAiCredits } from "../../ai-credits/__tests__/fakes.js";
 import { AdminModule } from "../admin.module.js";
 import { adminConfig } from "../config/admin.config.js";
 import type { AdminRecord } from "../types/admin.types.js";
@@ -97,6 +98,7 @@ describe("admin billing", () => {
       billing: billing.port,
       metaPages: TestMetaPages.create().port,
       reminders: TestReminders.create(subscriptions, mailbox).port,
+      aiCredits: TestAiCredits.create().port,
       overrides: {
         admins,
         challenges: new InMemoryChallenges(),

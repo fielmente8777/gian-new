@@ -13,6 +13,7 @@ import {
   type GoogleIdentityVerifier,
   type RefreshTokenStore,
 } from "../auth/index.js";
+import type { AiCreditsPort } from "../ai-credits/index.js";
 import type { BillingPort } from "../billing/index.js";
 import type { ClientArchivePort, ClientTrashPort } from "../client-archive/index.js";
 import type { HotelNotificationsPort } from "../hotel-notifications/index.js";
@@ -22,6 +23,7 @@ import type { SubscriptionsPort } from "../subscriptions/index.js";
 import type { ProfilesPort } from "../profiles/index.js";
 import type { UsersPort } from "../users/index.js";
 import type { AdminConfig } from "./config/admin.config.js";
+import { AdminAiCreditsController } from "./controllers/admin-ai-credits.controller.js";
 import { AdminAuditController } from "./controllers/admin-audit.controller.js";
 import { AdminBillingController } from "./controllers/admin-billing.controller.js";
 import { AdminAuthController } from "./controllers/admin-auth.controller.js";
@@ -32,10 +34,12 @@ import { AdminZohoController } from "./controllers/admin-zoho.controller.js";
 import { AdminSubscriptionsController } from "./controllers/admin-subscriptions.controller.js";
 import { AdminRefreshCookie } from "./controllers/admin-refresh-cookie.js";
 import { AdminTeamController } from "./controllers/admin-team.controller.js";
+import { AdminTeamPhonesController } from "./controllers/admin-team-phones.controller.js";
 import { AdminAuthenticateMiddleware } from "./middlewares/admin-authenticate.middleware.js";
 import { AdminAuditLogRepository } from "./repositories/admin-audit-log.repository.js";
 import { AdminLoginChallengeRepository } from "./repositories/admin-login-challenge.repository.js";
 import { AdminUserRepository } from "./repositories/admin-user.repository.js";
+import { AdminAiCreditsRoutes } from "./routes/admin-ai-credits.routes.js";
 import { AdminAuditRoutes } from "./routes/admin-audit.routes.js";
 import { AdminBillingRoutes } from "./routes/admin-billing.routes.js";
 import { AdminAuthRoutes } from "./routes/admin-auth.routes.js";
@@ -45,7 +49,9 @@ import { AdminRemindersRoutes } from "./routes/admin-reminders.routes.js";
 import { AdminZohoRoutes } from "./routes/admin-zoho.routes.js";
 import { AdminSubscriptionsRoutes } from "./routes/admin-subscriptions.routes.js";
 import { AdminTeamRoutes } from "./routes/admin-team.routes.js";
+import { AdminTeamPhonesRoutes } from "./routes/admin-team-phones.routes.js";
 import { AdminRoutes } from "./routes/admin.routes.js";
+import { AdminAiCreditsService } from "./services/admin-ai-credits.service.js";
 import { AdminAuditService } from "./services/admin-audit.service.js";
 import { AdminAuthService } from "./services/admin-auth.service.js";
 import { AdminBillingService } from "./services/admin-billing.service.js";
@@ -63,6 +69,7 @@ import { AdminSessionService } from "./services/admin-session.service.js";
 import { AdminBulkClientsService } from "./services/admin-bulk-clients.service.js";
 import { AdminInviteMailer } from "./services/admin-invite.mailer.js";
 import { AdminTeamService } from "./services/admin-team.service.js";
+import { AdminTeamPhonesService } from "./services/admin-team-phones.service.js";
 import { AdminTestAccounts } from "./services/admin-test-accounts.js";
 import { AdminTokenService } from "./services/admin-token.service.js";
 import type { AdminAuditStore, AdminUserStore, OtpChallengeStore } from "./types/admin.types.js";
@@ -77,7 +84,10 @@ export interface AdminModuleDeps {
   mailer: Mailer;
   /** hotel client profiles and accounts, owned by other modules */
   profiles: ProfilesPort;
-  users: Pick<UsersPort, "findOwnerByNdid" | "ownerNdidsWithEmailDomains" | "ndidsByEmail">;
+  users: Pick<
+    UsersPort,
+    "findOwnerByNdid" | "ownerNdidsWithEmailDomains" | "ndidsByEmail" | "listByNdid" | "setPhone" | "ownersWithoutPhone"
+  >;
   /** signs the hotel-dashboard token when staff open a client account (auth module) */
   clientAccounts: ClientAccountIssuer;
   /** the switches and the enforcer (client-services module) */
@@ -95,6 +105,8 @@ export interface AdminModuleDeps {
   metaPages: MetaPagesPort;
   /** renewal reminders by email and WhatsApp (renewal-reminders module) */
   reminders: RenewalReminderService;
+  /** client AI wallets, prices and the OpenAI pool (ai-credits module) */
+  aiCredits: AiCreditsPort;
   /** Tests replace the Mongo stores and Google with fakes. */
   overrides?: {
     admins?: AdminUserStore;
@@ -136,6 +148,7 @@ export class AdminModule implements AppModule {
       billing,
       metaPages,
       reminders,
+      aiCredits,
       overrides = {},
     } = deps;
 
@@ -211,6 +224,12 @@ export class AdminModule implements AppModule {
       ),
       new AdminTeamRoutes(new AdminTeamController(team), this.authenticate),
       new AdminClientsRoutes(new AdminClientsController(clients, bulkClients), this.authenticate),
+      new AdminTeamPhonesRoutes(
+        new AdminTeamPhonesController(
+          new AdminTeamPhonesService(profiles, users, hotelNotifications, clientTrash, audit),
+        ),
+        this.authenticate,
+      ),
       new AdminSubscriptionsRoutes(new AdminSubscriptionsController(subscriptionsAdmin), this.authenticate),
       new AdminBillingRoutes(new AdminBillingController(new AdminBillingService(billing, audit)), this.authenticate),
       new AdminMetaPagesRoutes(
@@ -222,8 +241,18 @@ export class AdminModule implements AppModule {
         new AdminRemindersController(new AdminRemindersService(reminders, audit, mailer.delivers)),
         this.authenticate,
       ),
+      new AdminAiCreditsRoutes(
+        new AdminAiCreditsController(new AdminAiCreditsService(aiCredits, profiles, audit, () => clientTrash.ndids())),
+        this.authenticate,
+      ),
       new AdminAuditRoutes(new AdminAuditController(audit), this.authenticate),
     ).router;
+  }
+
+  /** Emails of the active super admins (who gets company-wide alerts, such as a low OpenAI pool). */
+  async superAdminEmails(): Promise<string[]> {
+    const team = await this.stores.admins.list();
+    return team.filter((a) => a.role === "super_admin" && a.status === "active").map((a) => a.email);
   }
 
   async init(): Promise<void> {

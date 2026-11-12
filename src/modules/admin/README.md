@@ -21,7 +21,9 @@ Unknown, disabled and wrong-Google-account logins all get the same `ADMIN_NOT_AL
 
 **Code rules:** random, 5 minutes, single use, only the hash is stored. A login gets 5 wrong attempts, and asking for a new code does not reset them. New codes need a 60-second wait, with at most 4 emails per login.
 
-The code is needed at each new login. Refreshing the session does not ask again, and a session lasts `ADMIN_REFRESH_TTL_DAYS` (7 days).
+The code is needed at each new login. Refreshing the session does not ask again. A session is sliding: it ends after `ADMIN_REFRESH_TTL_DAYS` (30 days) **without use**, and every visit pushes that forward, so staff who use the console stay signed in until they log out (like Gmail).
+
+Reloads never sign anyone out (2026-11-12): a refresh cookie whose renewal never reached the browser (page reloaded or tab closed mid-refresh, two tabs at once) still works while its replacement is unused, and a refresh that races another answers 409 `REFRESH_IN_PROGRESS` without touching the cookie (the console retries). Only an old cookie whose replacement *was* used counts as theft and ends the session. The console treats only 401/403 as signed out; an unreachable server shows "reconnecting" instead of the login page. Unknown console URLs redirect to the overview (or login).
 
 Access tokens hold only the admin's id and session. Role and permissions are read from the database on every request, so disabling someone applies to their next click.
 
@@ -31,7 +33,7 @@ Access tokens hold only the admin's id and session. Role and permissions are rea
 |---|---|---|
 | Properties | All | Those in `assignedProperties`, with no limit. Several admins may hold the same one |
 | Base permissions (`clients.view`, `clients.edit`, `subscriptions.view`, `credits.view`) | Yes | Yes, automatically |
-| Advanced permissions (`subscriptions.manage`, `credits.manage`, `clients.open_account`, `billing.view`, `billing.manage`, `meta_pages.manage`) | Yes | Only when a super admin gives them |
+| Advanced permissions (`subscriptions.manage`, `credits.manage`, `credits.pricing`, `clients.open_account`, `billing.view`, `billing.manage`, `meta_pages.manage`, `clients.trash`) | Yes | Only when a super admin gives them |
 | Super-only permissions (`team.manage`, `audit.view`, `clients.delete`) | Yes | Never. They can't be given, only the role carries them |
 
 Rules live in `AdminPermissions`. Protect a route with `auth.require("credits.manage")`.
@@ -79,6 +81,19 @@ Edits write only `Zucks_profile`. The website (`WebsiteData`) and booking engine
 | `PUT /admin/clients/:ndid/notifications/:hid` | `clients.edit` | Saves all five sources of one property. Logged as `client.notifications_changed`, one line per switch or address list that changed |
 
 These are the hotel's own settings (`hotelnotifications`, see `../hotel-notifications/README.md`). Staff and the hotel edit the same copy, so the last save wins. The Leads switch and a stopped subscription override them: `leadsDelivered: false` means nothing is sent.
+
+### Team WhatsApp numbers (2026-11-12)
+
+The hotel dashboard's Team management list and its lead-alert picker read only `Zucks_users.phone`. nexon's Google sign-up stores no phone for the account holder, and the website's email sign-up sends none, so owners showed "—" and could not be picked for WhatsApp alerts.
+
+| Route | Permission | What it does |
+|---|---|---|
+| `GET /admin/team-phones/missing-owners` | `clients.view` | Account holders (oldest admin of each ndid) with no phone, within the person's properties, trash left out (max 500). `suggestedPhone` = the hotel phone Fix would copy, null when it has no country code |
+| `POST /admin/team-phones/fix-owners` | `clients.edit` | `{ ndids }` (max 100). Per client: `fixed`, `has_phone`, `no_hotel_phone` or `not_found`. Logged as `client.owner_phone_filled` |
+| `GET /admin/team-phones/:ndid` | `clients.view` | Every dashboard user, owner first, their phone and whether it gets WhatsApp lead alerts |
+| `PUT /admin/team-phones/:ndid/:userId` | `clients.edit` | `{ phone, addToAlerts }`. Saved as `+<digits>`, a 10-digit number as +91, empty clears. Logged as `client.team_phone_changed` |
+
+Rules (`services/admin-team-phones.service.ts` `OwnerPhoneFiller`, also used by `scripts/backfill-owner-phones.ts`, `npm run owners:backfill-phones [-- --apply]`): a stored phone is never replaced (the update filter requires it empty); only the account holder is filled; a hotel phone without a country code is never guessed (gian sends to the stored digits); the number goes onto every lead source's `phone[]` of each property via `HotelNotificationsPort.addPhone`, which skips lists that already hold it in any format and never changes a switch or email. gian's onboarding (`src/services/ownerContact.service.ts`) applies the same rules to every new sign-up.
 
 ### Service switches
 
@@ -217,6 +232,18 @@ Adding a staff member emails them the console link (`ADMIN_CONSOLE_URL`/login) a
 ## Test accounts (2026-11-11)
 
 Dashboards the team makes for testing are kept out of the client and subscription lists. Only the account holder's login email counts (the oldest admin in Zucks_users, the same owner as everywhere else) on `ADMIN_TEST_EMAIL_DOMAINS` (default `eazotel.com,fielmente.com`). A real hotel with an Eazotel team member, or an Eazotel address as its hotel or marketing email, stays a client. `GET /admin/clients?kind=test` and `GET /admin/subscriptions?kind=test` list only test accounts (the console's Test tab); `kind=clients` (default) leaves them out. Read at most once a minute. Both lists' search also matches any login email of an account (3+ characters).
+
+## AI credits (2026-11-11)
+
+`/admin/ai-credits/*`, built on the `ai-credits` module (`../ai-credits/README.md`; whole flow in `docs/AI-CREDITS.md`). Wallets, prices, packages and settings are gian's collections; changes go through the same transaction and audit rows gian's own admin code writes, and are also logged here.
+
+| Permission | Who | Routes |
+|---|---|---|
+| `credits.view` (base) | every admin, assigned clients only | `GET /clients`, `GET /clients/:ndid` (wallet + 30-day usage), `GET /clients/:ndid/transactions` |
+| `credits.manage` (advanced) | given by a super admin, assigned clients only | `POST /clients/:ndid/adjust` (`idempotencyKey` per click), `PUT /clients/:ndid/status`, `POST /clients/bulk-grant` |
+| `credits.pricing` (advanced) | company-wide numbers | `GET /overview`, `/openai/topups`, `/openai/costs`, `POST /openai/sync`, `/pricing`, `/packages`, `/settings`, `GET /audit` (gian's aiadminauditlogs) |
+
+Audit actions: `credits.granted`, `credits.deducted`, `credits.wallet_suspended`, `credits.wallet_resumed`, `credits.bulk_granted`, `credits.pricing_changed`, `credits.package_changed`, `credits.settings_changed`, `credits.openai_topup_added`, `credits.openai_topup_edited`. A replayed adjust (same key) is not logged twice. Price changes reach gian's AI requests within 30 s (gian's cache), shown as `appliesWithinSeconds`.
 
 ## Status and next steps (keep this updated)
 

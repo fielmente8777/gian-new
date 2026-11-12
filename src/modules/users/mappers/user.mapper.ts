@@ -10,7 +10,8 @@ export class UserMapper {
       email: doc.emailId,
       displayName: UserMapper.text(doc.displayName),
       userName: UserMapper.text(doc.userName),
-      phone: doc.phone === undefined || doc.phone === null ? null : String(doc.phone),
+      // a blank phone (some old rows) is no phone
+      phone: doc.phone === undefined || doc.phone === null || String(doc.phone).trim() === "" ? null : String(doc.phone),
       role: UserMapper.text(doc.role),
       isAdmin: UserMapper.bool(doc.isAdmin),
       // nexon treats a missing isActive as active

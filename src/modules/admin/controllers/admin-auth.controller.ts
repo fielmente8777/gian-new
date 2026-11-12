@@ -2,7 +2,7 @@ import type { Request, Response } from "express";
 
 import { BaseController } from "../../../shared/http/base-controller.js";
 import { RequestClient } from "../../../shared/http/request-client.js";
-import { InvalidRefreshTokenError } from "../../auth/index.js";
+import { InvalidRefreshTokenError, RefreshInProgressError } from "../../auth/index.js";
 import {
   AdminResponseDto,
   type AdminGoogleLoginBody,
@@ -54,7 +54,8 @@ export class AdminAuthController extends BaseController {
       this.cookie.write(res, session.refreshToken);
       this.ok(res, AdminResponseDto.session(session, admin));
     } catch (error) {
-      this.cookie.clear(res);
+      // a refresh racing another keeps its cookie: the session is fine, the client retries
+      if (!(error instanceof RefreshInProgressError)) this.cookie.clear(res);
       throw error;
     }
   }

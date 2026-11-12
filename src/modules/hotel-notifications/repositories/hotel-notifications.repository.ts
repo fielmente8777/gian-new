@@ -1,5 +1,6 @@
 import mongoose, { Types } from "mongoose";
 
+import { PhoneNumbers } from "../../../shared/utils/phone-numbers.js";
 import {
   LEAD_SOURCES,
   SourceAlertsDefaults,
@@ -69,6 +70,31 @@ export class HotelNotificationsRepository implements HotelNotificationsPort {
       { upsert: true, returnDocument: "after" },
     );
     return HotelNotificationsRepository.toAlerts(hid, doc);
+  }
+
+  async addPhone(ndid: string, hid: string, phone: string): Promise<LeadSource[]> {
+    const before = await this.collection.findOne({ ndid, hid }, { sort: { _id: 1 } });
+    if (!before) {
+      const config = Object.fromEntries(
+        LEAD_SOURCES.map((s) => [s, { _id: new Types.ObjectId(), phone: [phone] }]),
+      ) as HotelNotificationDocument["config"];
+      // $setOnInsert only: if the hotel saved its settings a moment ago, theirs is kept
+      const result = await this.collection.updateOne(
+        { ndid, hid },
+        { $setOnInsert: { ndid, hid, config } },
+        { upsert: true },
+      );
+      if (result.upsertedCount > 0) return [...LEAD_SOURCES];
+      return this.addPhone(ndid, hid, phone);
+    }
+
+    const missing = LEAD_SOURCES.filter(
+      (source) => !strings(before.config?.[source]?.phone).some((saved) => PhoneNumbers.same(saved, phone)),
+    );
+    if (missing.length === 0) return [];
+    const $push = Object.fromEntries(missing.map((source) => [`config.${source}.phone`, phone]));
+    await this.collection.updateOne({ _id: before._id }, { $push });
+    return missing;
   }
 
   private static toAlerts(hid: string, doc: HotelNotificationDocument | null): PropertyAlerts {

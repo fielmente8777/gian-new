@@ -10,7 +10,7 @@ import type { GoogleLoginBody } from "../dtos/google-login.dto.js";
 import type { LoginInput } from "../dtos/login.dto.js";
 import type { RefreshBody } from "../dtos/refresh.dto.js";
 import type { RegisterBody } from "../dtos/register.dto.js";
-import { InvalidRefreshTokenError } from "../errors/auth.errors.js";
+import { InvalidRefreshTokenError, RefreshInProgressError } from "../errors/auth.errors.js";
 import type { AuthService } from "../services/auth.service.js";
 import type { SessionService } from "../services/session.service.js";
 import { AuthContext } from "../types/auth-context.js";
@@ -60,7 +60,8 @@ export class AuthController extends BaseController {
       if (!fromBody) this.cookie.write(res, session.refreshToken);
       this.ok(res, SessionResponseDto.from(session, user, { includeRefreshToken: fromBody, isStaff: staff }));
     } catch (error) {
-      if (!fromBody) this.cookie.clear(res);
+      // a refresh racing another keeps its cookie: the session is fine, the client retries
+      if (!fromBody && !(error instanceof RefreshInProgressError)) this.cookie.clear(res);
       throw error;
     }
   }

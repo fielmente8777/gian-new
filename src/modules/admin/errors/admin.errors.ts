@@ -60,6 +60,12 @@ export class PropertyNotFoundError extends NotFoundError {
   }
 }
 
+export class ClientUserNotFoundError extends NotFoundError {
+  constructor() {
+    super("This person is not on the client's team", { code: "CLIENT_USER_NOT_FOUND" });
+  }
+}
+
 export class ClientAccountNotFoundError extends NotFoundError {
   constructor() {
     super("This client has no dashboard account to open", { code: "CLIENT_ACCOUNT_NOT_FOUND" });

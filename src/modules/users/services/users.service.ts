@@ -34,6 +34,20 @@ export class UsersService implements UsersPort {
     return doc ? UserMapper.toRecord(doc) : null;
   }
 
+  async listByNdid(ndid: string): Promise<UserRecord[]> {
+    if (!ndid.trim()) return [];
+    return (await this.users.findAllOfTenant(ndid.trim())).map((doc) => UserMapper.toRecord(doc));
+  }
+
+  setPhone(id: string, phone: string | null, options: { onlyIfEmpty?: boolean } = {}): Promise<boolean> {
+    const value = phone?.trim() || null;
+    return this.users.setPhone(id, value, options.onlyIfEmpty === true);
+  }
+
+  async ownersWithoutPhone(limit: number): Promise<UserRecord[]> {
+    return (await this.users.ownersWithoutPhone(limit)).map((doc) => UserMapper.toRecord(doc));
+  }
+
   /**
    * A new account owner (self sign-up or first Google login): a new tenant id (ndid),
    * full access, written in the same shape nexon writes, so nexon can read the account.

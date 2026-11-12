@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 
-import { InvalidRefreshTokenError, RefreshTokenReuseError } from "../errors/auth.errors.js";
+import { InvalidRefreshTokenError, RefreshInProgressError, RefreshTokenReuseError } from "../errors/auth.errors.js";
 import { RefreshTokenService } from "../services/refresh-token.service.js";
 import { InMemoryRefreshTokens } from "./fakes.js";
 
@@ -29,22 +29,43 @@ describe("RefreshTokenService (rotation + reuse detection)", () => {
     await service.rotate(rotated.refreshToken.token, {});
   });
 
-  it("a parallel refresh (same token within seconds) gets 401 without killing the session", async () => {
+  it("a lost response (page reloaded mid-refresh, or two tabs) continues the login", async () => {
     const first = await service.issue("user-1", "family-1", {});
-    const winner = await service.rotate(first.token, {});
-    await assert.rejects(service.rotate(first.token, {}), InvalidRefreshTokenError);
-    await service.rotate(winner.refreshToken.token, {}); // still valid
+    const lost = await service.rotate(first.token, {}); // the browser never stored this one
+    const recovered = await service.rotate(first.token, {});
+    assert.equal(recovered.familyId, "family-1");
+    await service.rotate(recovered.refreshToken.token, {}); // and the login goes on
+    // the retired replacement is now an old token whose successor was used
+    await assert.rejects(service.rotate(lost.refreshToken.token, {}), RefreshInProgressError);
+    store.age(RefreshTokenService.hash(lost.refreshToken.token), 60_000);
+    await assert.rejects(service.rotate(lost.refreshToken.token, {}), RefreshTokenReuseError);
   });
 
-  it("reuse of a spent token later revokes the whole family", async () => {
+  it("recovers a lost response even days later, while its replacement is still unused", async () => {
+    const first = await service.issue("user-1", "family-1", {});
+    await service.rotate(first.token, {});
+    store.age(RefreshTokenService.hash(first.token), 3 * 86_400_000);
+    const recovered = await service.rotate(first.token, {});
+    await service.rotate(recovered.refreshToken.token, {});
+  });
+
+  it("two refreshes racing for the same replacement: one wins, the other is told to retry", async () => {
     const first = await service.issue("user-1", "family-1", {});
     const second = await service.rotate(first.token, {});
+    await service.rotate(second.refreshToken.token, {}); // the replacement was used just now
+    await assert.rejects(service.rotate(first.token, {}), RefreshInProgressError);
+  });
+
+  it("an old token whose replacement was used later revokes the whole family", async () => {
+    const first = await service.issue("user-1", "family-1", {});
+    const second = await service.rotate(first.token, {});
+    const third = await service.rotate(second.refreshToken.token, {});
     store.age(RefreshTokenService.hash(first.token), 60_000);
     await assert.rejects(service.rotate(first.token, {}), RefreshTokenReuseError);
     await assert.rejects(
-      service.rotate(second.refreshToken.token, {}),
+      service.rotate(third.refreshToken.token, {}),
       InvalidRefreshTokenError,
-      "the thief's copy is dead too",
+      "the other holder's copy is dead too",
     );
   });
 

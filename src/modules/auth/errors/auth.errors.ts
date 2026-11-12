@@ -37,6 +37,17 @@ export class InvalidRefreshTokenError extends UnauthorizedError {
   }
 }
 
+/**
+ * Another refresh with the same cookie is finishing at this very moment (two tabs, or a page
+ * reloaded mid-refresh). Nothing is wrong with the session: the cookie is kept and the client
+ * tries again in a moment.
+ */
+export class RefreshInProgressError extends ConflictError {
+  constructor() {
+    super("The session is being renewed, please try again", { code: "REFRESH_IN_PROGRESS" });
+  }
+}
+
 /** A refresh token was used twice: probably stolen. The whole session family is revoked. */
 export class RefreshTokenReuseError extends UnauthorizedError {
   constructor() {

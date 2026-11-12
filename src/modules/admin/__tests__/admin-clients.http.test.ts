@@ -16,10 +16,12 @@ import { InMemorySubscriptions } from "../../subscriptions/__tests__/fakes.js";
 import { InMemoryProfiles } from "../../profiles/__tests__/fakes.js";
 import { TestBillingPort } from "../../billing/__tests__/fakes.js";
 import { TestReminders } from "../../renewal-reminders/__tests__/fakes.js";
+import { TestAiCredits } from "../../ai-credits/__tests__/fakes.js";
 import { AdminModule } from "../admin.module.js";
 import { adminConfig } from "../config/admin.config.js";
 import type { AdminRecord } from "../types/admin.types.js";
 import { InMemoryHotelNotifications } from "../../hotel-notifications/__tests__/fakes.js";
+import { SourceAlertsDefaults } from "../../hotel-notifications/index.js";
 import { TestMetaPages } from "../../meta-pages/__tests__/fakes.js";
 import { InMemoryClientArchive, InMemoryClientTrash } from "../../client-archive/__tests__/fakes.js";
 import { FakeClientAccounts, FakeMailbox, InMemoryAdmins, InMemoryAuditLog, InMemoryChallenges } from "./fakes.js";
@@ -102,6 +104,7 @@ describe("admin clients", () => {
       billing: TestBillingPort.create().port,
       metaPages: TestMetaPages.create().port,
       reminders: TestReminders.create(subscriptions, mailbox).port,
+      aiCredits: TestAiCredits.create().port,
       overrides: {
         admins,
         challenges: new InMemoryChallenges(),
@@ -679,6 +682,123 @@ describe("admin clients", () => {
     it("an admin sees only test accounts among their own properties", async () => {
       const test = (await json(await call("GET", `${CLIENTS}?kind=test`, staff))).data.items;
       assert.deepEqual(test, [], "staff hold aaa only, which is a real client");
+    });
+  });
+
+  describe("team phones", () => {
+    const PHONES = "/api/v1/admin/team-phones";
+    const phoneOf = (email: string) => [...users.records.values()].find((u) => u.email === email)?.phone ?? null;
+
+    beforeEach(() => {
+      hotelNotifications.saved.clear();
+      profiles.rows.get("aaa")!.hotelPhone = "+91 92582 14866";
+      profiles.rows.get("bbb")!.hotelPhone = "9876543210"; // no country code: never guessed
+      users.add({ email: "owner@midori.test", ndid: "bbb" });
+      users.add({ email: "owner@corbett.test", ndid: "ccc", phone: "+447700900123" });
+      users.add({ email: "desk@amaltas.test", ndid: "aaa", isAdmin: false, role: "admin" });
+    });
+
+    it("lists account holders with no phone, with the number Fix would save", async () => {
+      const { items } = (await json(await call("GET", `${PHONES}/missing-owners`, boss))).data;
+      assert.deepEqual(
+        items.map((r: { ndid: string; suggestedPhone: string | null }) => [r.ndid, r.suggestedPhone]),
+        [
+          ["aaa", "+919258214866"],
+          ["bbb", null],
+        ],
+      );
+    });
+
+    it("an admin only sees the clients they hold", async () => {
+      const { items } = (await json(await call("GET", `${PHONES}/missing-owners`, staff))).data;
+      assert.deepEqual(
+        items.map((r: { ndid: string }) => r.ndid),
+        ["aaa"],
+      );
+    });
+
+    it("fix fills only empty owner phones, adds the number to every alert list, and keeps switches", async () => {
+      await hotelNotifications.save("aaa", "11111111", {
+        ...SourceAlertsDefaults.all(),
+        webform: { email: false, emails: ["gm@amaltas.test"], whatsapp: false, phones: ["919258214866"] },
+      });
+      const res = await call("POST", `${PHONES}/fix-owners`, boss, { ndids: ["aaa", "bbb", "ccc", "zzz"] });
+      assert.equal(res.status, 200);
+      const outcomes = (await json(res)).data.results.map((r: { ndid: string; outcome: string }) => [r.ndid, r.outcome]);
+      assert.deepEqual(outcomes, [
+        ["aaa", "fixed"],
+        ["bbb", "no_hotel_phone"],
+        ["ccc", "has_phone"],
+        ["zzz", "not_found"],
+      ]);
+
+      assert.equal(phoneOf("owner@amaltas.test"), "+919258214866");
+      assert.equal(phoneOf("owner@midori.test"), null);
+      assert.equal(phoneOf("owner@corbett.test"), "+447700900123", "an existing number is never replaced");
+      assert.equal(phoneOf("desk@amaltas.test"), null, "team members are never filled");
+
+      const saved = hotelNotifications.saved.get("aaa/11111111")!;
+      assert.deepEqual(saved.webform, {
+        email: false,
+        emails: ["gm@amaltas.test"],
+        whatsapp: false,
+        phones: ["919258214866"],
+      }, "already listed in another format: not added again, switches untouched");
+      assert.deepEqual(saved.eazbot.phones, ["+919258214866"]);
+      assert.deepEqual(hotelNotifications.saved.get("aaa/22222222")!.google.phones, ["+919258214866"]);
+
+      assert.equal(auditLog.rows.filter((r) => r.action === "client.owner_phone_filled").length, 1);
+
+      const again = (await json(await call("POST", `${PHONES}/fix-owners`, boss, { ndids: ["aaa"] }))).data;
+      assert.equal(again.results[0].outcome, "has_phone", "running it twice changes nothing");
+    });
+
+    it("an admin's fix touches only the clients and properties they hold", async () => {
+      const { results } = (await json(await call("POST", `${PHONES}/fix-owners`, staff, { ndids: ["aaa", "bbb"] }))).data;
+      assert.deepEqual(
+        results.map((r: { outcome: string }) => r.outcome),
+        ["fixed", "not_found"],
+      );
+      assert.equal(hotelNotifications.saved.has("aaa/11111111"), false);
+      assert.deepEqual(hotelNotifications.saved.get("aaa/22222222")!.webform.phones, ["+919258214866"]);
+    });
+
+    it("shows the team, owner first, with each number's alert coverage", async () => {
+      const team = (await json(await call("GET", `${PHONES}/aaa`, boss))).data;
+      assert.equal(team.suggestedOwnerPhone, "+919258214866");
+      assert.deepEqual(
+        team.members.map((m: { email: string; isOwner: boolean; alerts: string | null }) => [m.email, m.isOwner, m.alerts]),
+        [
+          ["owner@amaltas.test", true, null],
+          ["desk@amaltas.test", false, null],
+        ],
+      );
+    });
+
+    it("staff can type a member's number and put it on the alert lists", async () => {
+      const desk = [...users.records.values()].find((u) => u.email === "desk@amaltas.test")!;
+      const res = await call("PUT", `${PHONES}/aaa/${"f".repeat(24)}`, boss, { phone: "98765 43210" });
+      assert.equal(res.status, 404, "an id that isn't on this client's team");
+
+      const id = desk.id;
+      const saved = await call("PUT", `${PHONES}/aaa/${id}`, boss, { phone: "98765 43210", addToAlerts: true });
+      assert.equal(saved.status, 200);
+      const member = (await json(saved)).data.members.find((m: { email: string }) => m.email === "desk@amaltas.test");
+      assert.deepEqual([member.phone, member.alerts], ["+919876543210", "all"]);
+      assert.equal(auditLog.rows.at(-1)!.action, "client.team_phone_changed");
+
+      const bad = await call("PUT", `${PHONES}/aaa/${id}`, boss, { phone: "12345" });
+      assert.equal(bad.status, 400);
+      const cleared = await call("PUT", `${PHONES}/aaa/${id}`, boss, { phone: "" });
+      assert.equal(phoneOf("desk@amaltas.test"), null);
+      assert.equal(cleared.status, 200);
+    });
+
+    it("a member of another client is not found", async () => {
+      const other = [...users.records.values()].find((u) => u.email === "owner@midori.test")!;
+      const res = await call("PUT", `${PHONES}/aaa/${other.id}`, boss, { phone: "+919876543210" });
+      assert.equal(res.status, 404);
+      assert.equal(phoneOf("owner@midori.test"), null);
     });
   });
 });

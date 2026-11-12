@@ -22,6 +22,7 @@ export {
   GoogleLoginDisabledError,
   InvalidGoogleTokenError,
   InvalidRefreshTokenError,
+  RefreshInProgressError,
   InvalidTokenError,
   MissingTokenError,
   TokenExpiredError,

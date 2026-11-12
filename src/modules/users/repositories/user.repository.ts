@@ -43,6 +43,43 @@ export class UserRepository {
       .exec();
   }
 
+  /** Every user of one tenant, oldest first (the first admin is the account holder). */
+  async findAllOfTenant(ndid: string): Promise<UserDocument[]> {
+    return UserModel.find({ ndid }).sort({ _id: 1 }).lean<UserDocument[]>().exec();
+  }
+
+  /**
+   * Sets `phone`. With onlyIfEmpty the filter itself requires the stored phone to be missing,
+   * null or blank, so a number that is already there (or written meanwhile) is never replaced.
+   * True when the document was changed.
+   */
+  async setPhone(id: string, phone: string | null, onlyIfEmpty: boolean): Promise<boolean> {
+    const _id = ObjectIds.parse(id);
+    if (!_id) return false;
+    const filter = onlyIfEmpty ? { _id, $or: UserRepository.NO_PHONE } : { _id };
+    const result = await UserModel.updateOne(filter, { $set: { phone } }).exec();
+    return result.modifiedCount > 0;
+  }
+
+  /**
+   * Account holders (oldest admin of each tenant) with no phone, oldest tenant first. Team
+   * members never count: only the owner's number can be taken from the hotel's profile.
+   */
+  async ownersWithoutPhone(limit: number): Promise<UserDocument[]> {
+    return UserModel.aggregate<UserDocument>([
+      { $match: { ndid: { $type: "string", $ne: "" }, isAdmin: { $in: [true, "true", "True"] } } },
+      { $sort: { _id: 1 } },
+      { $group: { _id: "$ndid", owner: { $first: "$$ROOT" } } },
+      { $replaceRoot: { newRoot: "$owner" } },
+      { $match: { $or: UserRepository.NO_PHONE } },
+      { $sort: { _id: 1 } },
+      { $limit: limit },
+    ]).exec();
+  }
+
+  /** nexon writes no phone at all for Google sign-ups; some old rows hold null or "". */
+  private static readonly NO_PHONE = [{ phone: { $exists: false } }, { phone: null }, { phone: /^\s*$/ }];
+
   async create(doc: Omit<UserDocument, "_id">): Promise<UserDocument> {
     const created = await UserModel.create(doc);
     return created.toObject<UserDocument>();

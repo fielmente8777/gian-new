@@ -45,6 +45,13 @@ export interface HotelNotificationsPort {
    * else in the document (callConfig) as it was.
    */
   save(ndid: string, hid: string, sources: SourceAlertsMap): Promise<PropertyAlerts>;
+  /**
+   * Adds one WhatsApp number, written exactly as given, to every source of a property that
+   * doesn't already have it (compared as digits). Switches, emails and other numbers stay as
+   * they are; a property with no document gets one holding only these numbers (alerts stay on
+   * by default). Returns the sources it was added to.
+   */
+  addPhone(ndid: string, hid: string, phone: string): Promise<LeadSource[]>;
 }
 
 export class SourceAlertsDefaults {

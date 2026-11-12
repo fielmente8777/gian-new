@@ -16,6 +16,7 @@ import { InMemoryProfiles } from "../../profiles/__tests__/fakes.js";
 import { APPS, InMemorySubscriptions, PLANS } from "../../subscriptions/__tests__/fakes.js";
 import { TestBillingPort } from "../../billing/__tests__/fakes.js";
 import { TestReminders } from "../../renewal-reminders/__tests__/fakes.js";
+import { TestAiCredits } from "../../ai-credits/__tests__/fakes.js";
 import { AdminModule } from "../admin.module.js";
 import { adminConfig } from "../config/admin.config.js";
 import { AdminSubscriptionsService } from "../services/admin-subscriptions.service.js";
@@ -101,6 +102,7 @@ describe("admin subscriptions", () => {
       billing: TestBillingPort.create().port,
       metaPages: TestMetaPages.create().port,
       reminders: TestReminders.create(subscriptions, mailbox).port,
+      aiCredits: TestAiCredits.create().port,
       overrides: {
         admins,
         challenges: new InMemoryChallenges(),

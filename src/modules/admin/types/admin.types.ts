@@ -54,6 +54,8 @@ export const ADMIN_AUDIT_ACTIONS = [
   "client.restored",
   "client.service_changed",
   "client.notifications_changed",
+  "client.team_phone_changed",
+  "client.owner_phone_filled",
   "subscription.paused",
   "subscription.resumed",
   "subscription.renewed",
@@ -83,6 +85,16 @@ export const ADMIN_AUDIT_ACTIONS = [
   "zoho.invoice_created",
   "zoho.invoice_applied",
   "zoho.invoice_ignored",
+  "credits.granted",
+  "credits.deducted",
+  "credits.wallet_suspended",
+  "credits.wallet_resumed",
+  "credits.bulk_granted",
+  "credits.pricing_changed",
+  "credits.package_changed",
+  "credits.settings_changed",
+  "credits.openai_topup_added",
+  "credits.openai_topup_edited",
 ] as const;
 export type AdminAuditAction = (typeof ADMIN_AUDIT_ACTIONS)[number];
 

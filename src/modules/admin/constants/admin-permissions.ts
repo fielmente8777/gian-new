@@ -8,6 +8,7 @@ export const ADMIN_BASE_PERMISSIONS = ["clients.view", "clients.edit", "subscrip
 export const ADMIN_ADVANCED_PERMISSIONS = [
   "subscriptions.manage",
   "credits.manage",
+  "credits.pricing",
   "clients.open_account",
   // revenue and payments
   "billing.view",

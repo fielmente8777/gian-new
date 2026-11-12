@@ -1,6 +1,7 @@
 import type { Config } from "./config/index.js";
 import { MailerFactory } from "./integrations/mail/mailer.js";
 import { AdminModule } from "./modules/admin/index.js";
+import { AiCreditsModule } from "./modules/ai-credits/index.js";
 import { AuthModule } from "./modules/auth/index.js";
 import { BillingModule } from "./modules/billing/index.js";
 import { HealthModule } from "./modules/health/index.js";
@@ -109,6 +110,16 @@ export class Container {
         };
       },
     });
+    // the alert recipients come from the admin module, built just below; read only when an alert is due
+    let superAdmins: () => Promise<string[]> = async () => [];
+    const aiCredits = new AiCreditsModule({
+      logger: this.logger,
+      mailer,
+      openai: config.openai,
+      recipients: () => superAdmins(),
+      consoleUrl: config.admin.ADMIN_CONSOLE_URL,
+      schedule: config.app.NODE_ENV !== "test",
+    });
     const admin = new AdminModule({
       config: config.admin,
       authConfig: config.auth,
@@ -126,7 +137,9 @@ export class Container {
       billing: billing.port,
       metaPages: metaPages.port,
       reminders: reminders.port,
+      aiCredits: aiCredits.port,
     });
+    superAdmins = () => admin.superAdminEmails();
 
     this.modules = [
       health,
@@ -140,6 +153,7 @@ export class Container {
       auth,
       billing,
       reminders,
+      aiCredits,
       admin,
     ];
   }

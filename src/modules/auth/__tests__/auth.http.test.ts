@@ -67,7 +67,7 @@ describe("auth over HTTP", () => {
       assert.equal((await readJson(without)).error.code, "TOKEN_MISSING");
     });
 
-    it("refresh rotates the cookie; replaying the old cookie later kills the session", async () => {
+    it("refresh rotates the cookie; an old cookie whose replacement was used later kills the session", async () => {
       const login = await app.post("/api/v1/auth/login", { email: "owner@hotel.test", password: "nexon-pass" });
       const first = cookieValue(cookieOf(login));
 
@@ -76,13 +76,16 @@ describe("auth over HTTP", () => {
       const second = cookieValue(cookieOf(refreshed));
       assert.notEqual(second, first);
 
+      const used = await fetch(`${app.base}/api/v1/auth/refresh`, { method: "POST", headers: { cookie: second } });
+      const third = cookieValue(cookieOf(used));
+
       app.refreshTokens.age(RefreshTokenService.hash(first.slice("ez_rt=".length)), 60_000);
       const replay = await fetch(`${app.base}/api/v1/auth/refresh`, { method: "POST", headers: { cookie: first } });
       assert.equal(replay.status, 401);
       assert.equal((await readJson(replay)).error.code, "REFRESH_TOKEN_REUSED");
       const afterTheft = await fetch(`${app.base}/api/v1/auth/refresh`, {
         method: "POST",
-        headers: { cookie: second },
+        headers: { cookie: third },
       });
       assert.equal(afterTheft.status, 401);
     });
