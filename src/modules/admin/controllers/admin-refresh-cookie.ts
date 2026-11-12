@@ -14,10 +14,12 @@ export class AdminRefreshCookie {
 
   constructor(auth: AuthConfig, admin: AdminConfig) {
     this.name = admin.ADMIN_REFRESH_COOKIE_NAME;
+    const crossSite = admin.ADMIN_COOKIE_SAMESITE === "none";
     this.options = {
       httpOnly: true,
-      secure: auth.AUTH_COOKIE_SECURE,
-      sameSite: "lax",
+      // browsers drop a SameSite=None cookie that is not Secure
+      secure: crossSite || auth.AUTH_COOKIE_SECURE,
+      sameSite: admin.ADMIN_COOKIE_SAMESITE,
       path: ADMIN_REFRESH_COOKIE_PATH,
       ...(auth.AUTH_COOKIE_DOMAIN ? { domain: auth.AUTH_COOKIE_DOMAIN } : {}),
     };
