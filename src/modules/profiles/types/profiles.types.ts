@@ -58,6 +58,8 @@ export interface ProfilePage {
 export interface ProfilesPort {
   list(search: ProfileSearch): Promise<ProfilePage>;
   findByNdid(ndid: string): Promise<ProfileRecord | null>;
+  /** The client whose website is on this domain ("hotel.com", "www.hotel.com" or a full URL). */
+  findByDomain(domain: string): Promise<ProfileRecord | null>;
   /** Writes only the fields given. Null when the client does not exist. */
   update(ndid: string, changes: ProfileChanges): Promise<ProfileRecord | null>;
 }

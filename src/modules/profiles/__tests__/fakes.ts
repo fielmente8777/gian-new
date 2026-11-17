@@ -37,6 +37,11 @@ export class InMemoryProfiles implements ProfilesPort {
     return record;
   }
 
+  async findByDomain(domain: string): Promise<ProfileRecord | null> {
+    const bare = domain.trim().toLowerCase().replace(/^[a-z]+:\/\//, "").replace(/[/?#:].*$/, "").replace(/^www\./, "");
+    return [...this.rows.values()].find((r) => r.domain?.replace(/^www\./, "") === bare) ?? null;
+  }
+
   async list({ limit, after, search, ndids, excludeNdids, orNdids }: ProfileSearch) {
     const needle = search?.toLowerCase();
     const matching = [...this.rows.values()]

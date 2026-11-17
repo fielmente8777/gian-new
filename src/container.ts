@@ -9,10 +9,11 @@ import { ClientArchiveModule } from "./modules/client-archive/index.js";
 import { ClientServicesModule } from "./modules/client-services/index.js";
 import { HotelNotificationsModule } from "./modules/hotel-notifications/index.js";
 import { MetaPagesModule } from "./modules/meta-pages/index.js";
+import { NewsletterModule } from "./modules/newsletter/index.js";
 import { RenewalRemindersModule } from "./modules/renewal-reminders/index.js";
 import { WhatsappCloudClient } from "./integrations/whatsapp/whatsapp-cloud.client.js";
 import { ProfilesModule } from "./modules/profiles/index.js";
-import { SubscriptionsModule } from "./modules/subscriptions/index.js";
+import { SubscriptionRule, SubscriptionsModule } from "./modules/subscriptions/index.js";
 import { UsersModule } from "./modules/users/index.js";
 import { Database } from "./shared/database/database.js";
 import { EventBus } from "./shared/events/event-bus.js";
@@ -110,6 +111,29 @@ export class Container {
         };
       },
     });
+    const hotelInfo = async (profile: Awaited<ReturnType<typeof profiles.port.findByNdid>>) => {
+      if (!profile) return null;
+      const owner = await users.port.findOwnerByNdid(profile.ndid);
+      const alertEmails = [...new Set([profile.hotelEmail, owner?.email].filter((e): e is string => Boolean(e)))];
+      return { ndid: profile.ndid, hotelName: profile.hotelName, alertEmails };
+    };
+    const newsletter = new NewsletterModule({
+      config: config.newsletter,
+      logger: this.logger,
+      mailer,
+      auth: auth.authenticate,
+      publicUrl: config.app.PUBLIC_URL,
+      hotels: {
+        byDomain: async (domain) => hotelInfo(await profiles.port.findByDomain(domain)),
+        byNdid: async (ndid) => hotelInfo(await profiles.port.findByNdid(ndid)),
+      },
+      // same rule as client-services: an ended or paused subscription sends nothing
+      serving: async (ndid) =>
+        SubscriptionRule.serving(
+          await subscriptions.port.findByNdid(ndid),
+          config.clientServices.CLIENT_SERVICES_FOLLOW_EXPIRY,
+        ),
+    });
     // the alert recipients come from the admin module, built just below; read only when an alert is due
     let superAdmins: () => Promise<string[]> = async () => [];
     const aiCredits = new AiCreditsModule({
@@ -154,6 +178,7 @@ export class Container {
       billing,
       reminders,
       aiCredits,
+      newsletter,
       admin,
     ];
   }

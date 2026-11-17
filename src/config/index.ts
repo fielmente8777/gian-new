@@ -6,6 +6,7 @@ import { openAiAdminConfig } from "../integrations/openai/openai-admin.config.js
 import { adminConfig } from "../modules/admin/config/admin.config.js";
 import { clientServicesConfig } from "../modules/client-services/config/client-services.config.js";
 import { authConfig } from "../modules/auth/config/auth.config.js";
+import { newsletterConfig } from "../modules/newsletter/config/newsletter.config.js";
 import { appConfig } from "./app.config.js";
 import type { ConfigOf, EnvSource } from "./config-section.js";
 import { databaseConfig } from "./database.config.js";
@@ -28,6 +29,7 @@ export const configSections = {
   auth: authConfig,
   admin: adminConfig,
   clientServices: clientServicesConfig,
+  newsletter: newsletterConfig,
 } as const;
 
 export type Config = ConfigOf<typeof configSections>;

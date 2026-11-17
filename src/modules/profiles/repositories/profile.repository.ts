@@ -66,6 +66,26 @@ export class ProfileRepository {
     return doc ? this.toRecord(doc) : null;
   }
 
+  async findByDomain(domain: string): Promise<ProfileRecord | null> {
+    const bare = ProfileRepository.bareDomain(domain);
+    if (!bare) return null;
+    // profiles store the domain as typed at onboarding, with or without "www."
+    const doc = await ProfileModel.findOne({ domain: { $in: [bare, `www.${bare}`] } })
+      .lean<ProfileDocument>()
+      .exec();
+    return doc ? this.toRecord(doc) : null;
+  }
+
+  /** "https://www.Hotel.com/rooms" -> "hotel.com" */
+  static bareDomain(domain: string): string {
+    return domain
+      .trim()
+      .toLowerCase()
+      .replace(/^[a-z]+:\/\//, "")
+      .replace(/[/?#:].*$/, "")
+      .replace(/^www\./, "");
+  }
+
   async update(ndid: string, { profile, properties }: ProfileChanges): Promise<ProfileRecord | null> {
     const set: Record<string, string | null> = { ...profile };
     for (const [hid, fields] of Object.entries(properties)) {
